@@ -124,6 +124,12 @@ async fn run_socks_loop(outbound: Outbound, stop: Arc<AtomicBool>) -> Result<(),
             "quic_fast SOCKS runtime not in core yet; use swif-cli".into(),
         ));
     }
+    // Commercial: null_tcp only with explicit lab opt-in.
+    if mask == "null_tcp" && std::env::var("SWIF_ALLOW_NULL").ok().as_deref() != Some("1") {
+        return Err(CoreError::Msg(
+            "null_tcp is lab-only; set SWIF_ALLOW_NULL=1 or use tls13_stable".into(),
+        ));
+    }
 
     let listener = TcpListener::bind(socks)
         .await
@@ -152,6 +158,21 @@ async fn run_socks_loop(outbound: Outbound, stop: Arc<AtomicBool>) -> Result<(),
     Ok(())
 }
 
+async fn dial_null_retry(server: SocketAddr) -> anyhow::Result<TcpStream> {
+    let mut last = None;
+    for attempt in 1..=3u32 {
+        match NullTcp.dial(server).await {
+            Ok(s) => return Ok(s),
+            Err(e) => {
+                warn!("edge dial attempt {attempt}/3 failed: {e}");
+                last = Some(e);
+                tokio::time::sleep(Duration::from_millis(150 * attempt as u64)).await;
+            }
+        }
+    }
+    Err(last.unwrap().into())
+}
+
 async fn handle_one(
     mut local: TcpStream,
     server: SocketAddr,
@@ -163,13 +184,23 @@ async fn handle_one(
     let target = format!("{host}:{port}");
     match mask {
         "null_tcp" => {
-            let remote = NullTcp.dial(server).await?;
+            let remote = dial_null_retry(server).await?;
             pump_session(local, remote, pubk, target).await
         }
         "tls13_stable" => {
             let material = tls.ok_or_else(|| anyhow::anyhow!("tls material missing"))?;
-            let remote = dial_tls(server, material).await?;
-            pump_session(local, remote, pubk, target).await
+            let mut last = None;
+            for attempt in 1..=3u32 {
+                match dial_tls(server, material).await {
+                    Ok(remote) => return pump_session(local, remote, pubk, target).await,
+                    Err(e) => {
+                        warn!("tls dial attempt {attempt}/3 failed: {e}");
+                        last = Some(e);
+                        tokio::time::sleep(Duration::from_millis(150 * attempt as u64)).await;
+                    }
+                }
+            }
+            Err(last.unwrap().into())
         }
         other => anyhow::bail!("unsupported mask {other}"),
     }

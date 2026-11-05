@@ -1,15 +1,10 @@
 name: ci
 on:
   push:
-    paths: ["swifwire/**"]
   pull_request:
-    paths: ["swifwire/**"]
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: swifwire
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

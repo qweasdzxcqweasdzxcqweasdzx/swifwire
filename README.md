@@ -1,37 +1,33 @@
 # SwifWire
 
-Собственный транспортный протокол и минимальное ядро для **SwifTun**.
+Собственный транспортный протокол и self-hosted edge/client для **SwifTun**.
 
 | Документ | Назначение |
 |----------|------------|
+| [docs/COMMERCIAL.md](docs/COMMERCIAL.md) | Коммерческий пакет / релиз Windows |
+| [docs/EMBED.md](docs/EMBED.md) | Встройка в 3x-ui и VPN-клиенты |
 | [docs/DESIGN.md](docs/DESIGN.md) | Design doc |
 | [docs/WIRE.md](docs/WIRE.md) | Wire format v0 |
-| [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) | 90-day plan |
 | [docs/EDGE_RUNBOOK.md](docs/EDGE_RUNBOOK.md) | Edge ops |
 | [CHANGELOG.md](CHANGELOG.md) | Releases |
-| [docs/EMBED.md](docs/EMBED.md) | Встройка в 3x-ui и VPN-клиенты |
 | [schema/](schema/) | inbound / outbound / mask-pack |
 | [include/swifwire.h](include/swifwire.h) | C ABI |
 | [bindings/go/swifwire](bindings/go/swifwire) | Go sidecar helpers |
 
-**Статус:** **`0.1.0-mvp` lab** — DoD в [docs/DOD.md](docs/DOD.md). `wintun.dll` через `scripts/fetch-wintun.ps1`; live OS adapter — admin + `--features os-tun --tun`.
+**Статус:** **`0.2.0`** — коммерческий Windows pack (SOCKS-core + edge). OS TUN — feature `os-tun` + admin.
 
 ```powershell
-cd swifwire
 cargo test --workspace
-.\scripts\smoke-socks.ps1
-.\scripts\smoke-tls.ps1
-.\scripts\smoke-udp.ps1
-.\scripts\smoke-tun.ps1
-.\scripts\smoke-core.ps1   # embed core live SOCKS
-.\scripts\fetch-wintun.ps1
+.\scripts\smoke-all.ps1
+.\scripts\release-win.ps1
 ```
 
 ```powershell
-cargo run -p swif-edge -- --listen 127.0.0.1:9443 --mask null_tcp
-cargo run -p swif-cli -- --server 127.0.0.1:9443 --pub-file server.pub --socks 127.0.0.1:11080
-cargo run -p swif-tray -- --pub-file server.pub   # console Start/Stop
-# or: .\scripts\tray-lab.ps1
+# прод-лаб (TLS mask)
+cargo run -p swif-edge -- --listen 0.0.0.0:9443 --mask tls13_stable --key server.key --pub-out server.pub
+# клиент: подставьте pub в deploy/client.config.example.json
+cargo run -p swif-core --bin swif-core-run -- client.config.json
+curl.exe -x socks5h://127.0.0.1:10808 https://example.com/
 ```
 
-**Не цели:** вечный обход конкретного DPI; Xray/Reality как конечное ядро.
+Lab-only `null_tcp` требует `SWIF_ALLOW_NULL=1`. Не цели: вечный обход DPI; замена Xray как единственного ядра панели.

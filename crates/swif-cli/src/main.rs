@@ -28,8 +28,8 @@ struct Args {
     pub_file: PathBuf,
     #[arg(long, default_value = "127.0.0.1:11080")]
     socks: SocketAddr,
-    /// null_tcp | tls13_stable | quic_fast
-    #[arg(long, default_value = "null_tcp")]
+    /// null_tcp (lab, needs SWIF_ALLOW_NULL=1) | tls13_stable | quic_fast
+    #[arg(long, default_value = "tls13_stable")]
     mask: String,
     #[arg(long, default_value = "lab-cert.der.json")]
     tls_material: PathBuf,
@@ -373,6 +373,9 @@ async fn main() -> Result<()> {
         return tun_smoke_once(args.server, pubk).await;
     }
 
+    if args.mask == "null_tcp" && std::env::var("SWIF_ALLOW_NULL").ok().as_deref() != Some("1") {
+        bail!("null_tcp is lab-only; set SWIF_ALLOW_NULL=1 or use --mask tls13_stable");
+    }
     info!(
         "swif-cli socks {} → server {} mask={}",
         args.socks, args.server, args.mask

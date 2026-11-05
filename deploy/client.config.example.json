@@ -1,0 +1,9 @@
+{
+  "server_addr": "vpn.example.com:443",
+  "server_static_pub_hex": "REPLACE_WITH_64_HEX_SERVER_PUB",
+  "mask_profile": "tls13_stable",
+  "socks_listen": "127.0.0.1:10808",
+  "tls_material_path": "lab-cert.der.json",
+  "start_runtime": true,
+  "route_mode": "global"
+}

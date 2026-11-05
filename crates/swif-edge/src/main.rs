@@ -29,8 +29,8 @@ struct Args {
     key: PathBuf,
     #[arg(long, default_value = "server.pub")]
     pub_out: PathBuf,
-    /// null_tcp | tls13_stable | quic_fast
-    #[arg(long, default_value = "null_tcp")]
+    /// null_tcp (lab, needs SWIF_ALLOW_NULL=1) | tls13_stable | quic_fast
+    #[arg(long, default_value = "tls13_stable")]
     mask: String,
     /// Optional upstream cover HTTP (else builtin HTML).
     #[arg(long)]
@@ -438,6 +438,9 @@ async fn main() -> Result<()> {
     }
     if args.mask != "null_tcp" {
         bail!("unknown mask {}", args.mask);
+    }
+    if std::env::var("SWIF_ALLOW_NULL").ok().as_deref() != Some("1") {
+        bail!("null_tcp is lab-only; set SWIF_ALLOW_NULL=1 or use --mask tls13_stable");
     }
     let listener = TcpListener::bind(args.listen).await?;
     loop {

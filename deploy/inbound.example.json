@@ -1,0 +1,18 @@
+{
+  "protocol": "swifwire",
+  "listen": "0.0.0.0",
+  "port": 443,
+  "tag": "swif-in",
+  "remark": "SwifWire-443",
+  "settings": {
+    "static_key_path": "server.key",
+    "pub_out_path": "server.pub",
+    "mask": "tls13_stable",
+    "sni": "cdn.example.com",
+    "cover": "127.0.0.1:8443",
+    "egress": "direct",
+    "clients": [
+      { "email": "user1@swif", "enable": true }
+    ]
+  }
+}

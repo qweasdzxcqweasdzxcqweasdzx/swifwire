@@ -13,3 +13,5 @@ cli.out
 core.err
 core.out
 core-cfg.json
+client.runtime.json
+dist/

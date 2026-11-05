@@ -1,17 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
-- Embed API: inbound/outbound schemas, `swif://` shares
-- C ABI `swif-ffi` (`include/swifwire.h`) for VPN clients
-- Go helpers `bindings/go/swifwire` for 3x-ui-style sidecars
-- Docs: `docs/EMBED.md`
+Commercial Windows self-host package:
+
+- Live embed core SOCKS (`swif-core-run`, C ABI, Go sidecar helpers)
+- Default mask `tls13_stable`; `null_tcp` requires `SWIF_ALLOW_NULL=1`
+- Dial retries in core runtime; tray shell starts/stops `swif-core-run`
+- `deploy/` examples, `docs/COMMERCIAL.md`, `scripts/release-win.ps1`, `scripts/smoke-all.ps1`
+- VERSION / workspace `0.2.0`
 
 ## 0.1.0-mvp
 
-Lab MVP frozen at VERSION `0.1.0-mvp`. Tag when OS TUN admin E2E checked: `git tag -a v0.1.0-mvp`.
-
-## 0.1.0-mvp notes
+Lab MVP frozen. Tag when OS TUN admin E2E checked: `git tag -a v0.1.0-mvp`.
 
 ### M1
 - Wire framing, crypto, session, mux, shape
@@ -31,5 +32,3 @@ Lab MVP frozen at VERSION `0.1.0-mvp`. Tag when OS TUN admin E2E checked: `git t
 - `swif-tun` NullTun + optional `os-tun` feature
 - `swif-tray` minimal Windows tray
 - EDGE_RUNBOOK, smoke scripts
-
-Tag when DoD complete: `v0.1.0-mvp`.

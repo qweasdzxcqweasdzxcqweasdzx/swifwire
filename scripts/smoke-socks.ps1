@@ -2,6 +2,7 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $env:Path = "$env:USERPROFILE\.cargo\bin;" + $env:Path
+$env:SWIF_ALLOW_NULL = "1"
 Set-Location $root
 
 cargo build -p swif-edge -p swif-cli --quiet
@@ -9,7 +10,7 @@ Remove-Item "server.key","server.pub","edge.err","edge.out","cli.err","cli.out" 
 
 $edge = Start-Process -PassThru -WorkingDirectory $root -WindowStyle Hidden `
   -FilePath ".\target\debug\swif-edge.exe" `
-  -ArgumentList "--listen","127.0.0.1:9443","--key","server.key","--pub-out","server.pub" `
+  -ArgumentList "--listen","127.0.0.1:9443","--key","server.key","--pub-out","server.pub","--mask","null_tcp" `
   -RedirectStandardError "edge.err" -RedirectStandardOutput "edge.out"
 
 $deadline = (Get-Date).AddSeconds(10)
@@ -23,7 +24,7 @@ while (-not (Test-Path "server.pub")) {
 
 $cli = Start-Process -PassThru -WorkingDirectory $root -WindowStyle Hidden `
   -FilePath ".\target\debug\swif-cli.exe" `
-  -ArgumentList "--server","127.0.0.1:9443","--pub-file","server.pub","--socks","127.0.0.1:11080" `
+  -ArgumentList "--server","127.0.0.1:9443","--pub-file","server.pub","--socks","127.0.0.1:11080","--mask","null_tcp" `
   -RedirectStandardError "cli.err" -RedirectStandardOutput "cli.out"
 
 Start-Sleep -Seconds 1
