@@ -9,7 +9,10 @@
 | [docs/BUILD_PLAN.md](docs/BUILD_PLAN.md) | 90-day plan |
 | [docs/EDGE_RUNBOOK.md](docs/EDGE_RUNBOOK.md) | Edge ops |
 | [CHANGELOG.md](CHANGELOG.md) | Releases |
-| [schema/mask-pack.v1.json](schema/mask-pack.v1.json) | Mask pack schema |
+| [docs/EMBED.md](docs/EMBED.md) | Встройка в 3x-ui и VPN-клиенты |
+| [schema/](schema/) | inbound / outbound / mask-pack |
+| [include/swifwire.h](include/swifwire.h) | C ABI |
+| [bindings/go/swifwire](bindings/go/swifwire) | Go sidecar helpers |
 
 **Статус:** **`0.1.0-mvp` lab** — DoD в [docs/DOD.md](docs/DOD.md). `wintun.dll` через `scripts/fetch-wintun.ps1`; live OS adapter — admin + `--features os-tun --tun`.
 
@@ -20,6 +23,7 @@ cargo test --workspace
 .\scripts\smoke-tls.ps1
 .\scripts\smoke-udp.ps1
 .\scripts\smoke-tun.ps1
+.\scripts\smoke-core.ps1   # embed core live SOCKS
 .\scripts\fetch-wintun.ps1
 ```
 

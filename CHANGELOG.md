@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Embed API: inbound/outbound schemas, `swif://` shares
+- C ABI `swif-ffi` (`include/swifwire.h`) for VPN clients
+- Go helpers `bindings/go/swifwire` for 3x-ui-style sidecars
+- Docs: `docs/EMBED.md`
+
 ## 0.1.0-mvp
 
 Lab MVP frozen at VERSION `0.1.0-mvp`. Tag when OS TUN admin E2E checked: `git tag -a v0.1.0-mvp`.

@@ -1,0 +1,282 @@
+//! Live client runtime: local SOCKS5 → SwifWire edge (null_tcp / tls13_stable).
+
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
+
+use swif_mask::{
+    dial_tls, read_pref, write_pref, LabTlsMaterial, MaskDial, NullTcp,
+};
+use swif_mux::Mux;
+use swif_session::{client_finish_keys, client_hello_inner, SessionTransport};
+use swif_shape::{Shaper, ShaperProfile};
+use swif_wire::FrameType;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::runtime::Runtime;
+use tracing::{error, info, warn};
+
+use crate::config::Outbound;
+use crate::CoreError;
+
+pub struct RuntimeEngine {
+    stop: Arc<AtomicBool>,
+    join: Option<thread::JoinHandle<()>>,
+}
+
+impl RuntimeEngine {
+    pub fn spawn(outbound: Outbound) -> Result<Self, CoreError> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop2 = stop.clone();
+        let join = thread::Builder::new()
+            .name("swif-runtime".into())
+            .spawn(move || {
+                let rt = match Runtime::new() {
+                    Ok(r) => r,
+                    Err(e) => {
+                        error!("runtime: {e}");
+                        return;
+                    }
+                };
+                if let Err(e) = rt.block_on(run_socks_loop(outbound, stop2)) {
+                    error!("swif runtime exited: {e:#}");
+                }
+            })
+            .map_err(|e| CoreError::Msg(e.to_string()))?;
+        // wait briefly for bind
+        thread::sleep(Duration::from_millis(80));
+        Ok(Self {
+            stop,
+            join: Some(join),
+        })
+    }
+
+    pub fn shutdown(mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(j) = self.join.take() {
+            let _ = j.join();
+        }
+    }
+}
+
+impl Drop for RuntimeEngine {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+    }
+}
+
+fn parse_pub(hex_s: &str) -> Result<[u8; 32], CoreError> {
+    let v = hex::decode(hex_s.trim()).map_err(|e| CoreError::Msg(e.to_string()))?;
+    if v.len() != 32 {
+        return Err(CoreError::Msg("pub must be 32 bytes".into()));
+    }
+    let mut a = [0u8; 32];
+    a.copy_from_slice(&v);
+    Ok(a)
+}
+
+fn load_tls_material(path: &str) -> Result<LabTlsMaterial, CoreError> {
+    let v: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(path).map_err(|e| CoreError::Msg(e.to_string()))?,
+    )
+    .map_err(|e| CoreError::Msg(e.to_string()))?;
+    Ok(LabTlsMaterial {
+        cert_der: hex::decode(v["cert_hex"].as_str().unwrap_or(""))
+            .map_err(|e| CoreError::Msg(e.to_string()))?,
+        key_der: hex::decode(v["key_hex"].as_str().unwrap_or(""))
+            .map_err(|e| CoreError::Msg(e.to_string()))?,
+        server_name: v["sni"]
+            .as_str()
+            .unwrap_or("cover.local")
+            .to_string(),
+    })
+}
+
+async fn run_socks_loop(outbound: Outbound, stop: Arc<AtomicBool>) -> Result<(), CoreError> {
+    let socks: SocketAddr = outbound
+        .settings
+        .socks_listen
+        .parse()
+        .map_err(|e: std::net::AddrParseError| CoreError::Msg(e.to_string()))?;
+    let server: SocketAddr = format!(
+        "{}:{}",
+        outbound.settings.address, outbound.settings.port
+    )
+    .parse()
+    .map_err(|e: std::net::AddrParseError| CoreError::Msg(e.to_string()))?;
+    let pubk = parse_pub(&outbound.settings.server_pub_hex)?;
+    let mask = outbound.settings.mask.clone();
+    let tls = if mask == "tls13_stable" {
+        let path = outbound
+            .settings
+            .tls_material_path
+            .clone()
+            .unwrap_or_else(|| "lab-cert.der.json".into());
+        Some(load_tls_material(&path)?)
+    } else {
+        None
+    };
+    if mask == "quic_fast" {
+        return Err(CoreError::Msg(
+            "quic_fast SOCKS runtime not in core yet; use swif-cli".into(),
+        ));
+    }
+
+    let listener = TcpListener::bind(socks)
+        .await
+        .map_err(|e| CoreError::Msg(format!("socks bind {socks}: {e}")))?;
+    info!(
+        "swif-core runtime SOCKS {} → {} mask={}",
+        socks, server, mask
+    );
+
+    loop {
+        if stop.load(Ordering::SeqCst) {
+            break;
+        }
+        let accept = tokio::time::timeout(Duration::from_millis(200), listener.accept()).await;
+        let Ok(Ok((sock, _))) = accept else {
+            continue;
+        };
+        let mask = mask.clone();
+        let tls = tls.clone();
+        tokio::spawn(async move {
+            if let Err(e) = handle_one(sock, server, pubk, &mask, tls.as_ref()).await {
+                warn!("proxy: {e:#}");
+            }
+        });
+    }
+    Ok(())
+}
+
+async fn handle_one(
+    mut local: TcpStream,
+    server: SocketAddr,
+    pubk: [u8; 32],
+    mask: &str,
+    tls: Option<&LabTlsMaterial>,
+) -> anyhow::Result<()> {
+    let (host, port) = socks_handshake(&mut local).await?;
+    let target = format!("{host}:{port}");
+    match mask {
+        "null_tcp" => {
+            let remote = NullTcp.dial(server).await?;
+            pump_session(local, remote, pubk, target).await
+        }
+        "tls13_stable" => {
+            let material = tls.ok_or_else(|| anyhow::anyhow!("tls material missing"))?;
+            let remote = dial_tls(server, material).await?;
+            pump_session(local, remote, pubk, target).await
+        }
+        other => anyhow::bail!("unsupported mask {other}"),
+    }
+}
+
+async fn socks_handshake(sock: &mut TcpStream) -> anyhow::Result<(String, u16)> {
+    let mut hdr = [0u8; 2];
+    sock.read_exact(&mut hdr).await?;
+    if hdr[0] != 0x05 {
+        anyhow::bail!("not socks5");
+    }
+    let nmethods = hdr[1] as usize;
+    let mut methods = vec![0u8; nmethods];
+    sock.read_exact(&mut methods).await?;
+    sock.write_all(&[0x05, 0x00]).await?;
+
+    let mut req = [0u8; 4];
+    sock.read_exact(&mut req).await?;
+    if req[0] != 0x05 || req[1] != 0x01 {
+        anyhow::bail!("only CONNECT");
+    }
+    let host = match req[3] {
+        0x01 => {
+            let mut ip = [0u8; 4];
+            sock.read_exact(&mut ip).await?;
+            format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3])
+        }
+        0x03 => {
+            let mut ln = [0u8; 1];
+            sock.read_exact(&mut ln).await?;
+            let mut name = vec![0u8; ln[0] as usize];
+            sock.read_exact(&mut name).await?;
+            String::from_utf8_lossy(&name).to_string()
+        }
+        _ => anyhow::bail!("bad atype"),
+    };
+    let mut pb = [0u8; 2];
+    sock.read_exact(&mut pb).await?;
+    let port = u16::from_be_bytes(pb);
+    sock.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+        .await?;
+    Ok((host, port))
+}
+
+async fn pump_session<S>(
+    mut local: TcpStream,
+    mut remote: S,
+    server_pub: [u8; 32],
+    target: String,
+) -> anyhow::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let (hello, eph) = client_hello_inner(server_pub, 0x07);
+    write_pref(&mut remote, &hello).await?;
+    let server_raw = read_pref(&mut remote).await?;
+    let keys = client_finish_keys(server_pub, &eph, &hello, &server_raw)?;
+    let mut sess = SessionTransport::new_client(keys, Shaper::new(ShaperProfile::default()));
+    let mut mux = Mux::new_client();
+
+    let sealed0 = read_pref(&mut remote).await?;
+    let (frame0, _) = sess.open_frame(&sealed0)?;
+    if frame0.ty == FrameType::Control {
+        if let Some((swif_wire::CtrlType::MaskOffer, payload)) = swif_wire::parse_ctrl(&frame0) {
+            if let Some((id, _)) = swif_wire::parse_mask_offer(&payload) {
+                let ack = swif_wire::mask_ack(&id, true);
+                write_pref(&mut remote, &sess.seal_frame(&ack)?).await?;
+            }
+        }
+    }
+
+    let (sid, open) = mux.open_stream(target.into_bytes());
+    write_pref(&mut remote, &sess.seal_frame(&open)?).await?;
+
+    let mut local_buf = vec![0u8; 32 * 1024];
+    loop {
+        tokio::select! {
+            n = local.read(&mut local_buf) => {
+                let n = n?;
+                if n == 0 {
+                    let fin = mux.data_frame(sid, b"")?;
+                    write_pref(&mut remote, &sess.seal_frame(&fin)?).await?;
+                    return Ok(());
+                }
+                let f = mux.data_frame(sid, &local_buf[..n])?;
+                write_pref(&mut remote, &sess.seal_frame(&f)?).await?;
+            }
+            sealed = read_pref(&mut remote) => {
+                let sealed = sealed?;
+                let (frame, _) = sess.open_frame(&sealed)?;
+                match frame.ty {
+                    FrameType::StreamData => {
+                        let (id, data) = mux.on_data(&frame)?;
+                        if id != sid { continue; }
+                        if data.is_empty() { return Ok(()); }
+                        local.write_all(&data).await?;
+                    }
+                    FrameType::StreamReset => return Ok(()),
+                    FrameType::Pong | FrameType::Control => {}
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn _path_touch() -> PathBuf {
+    PathBuf::new()
+}

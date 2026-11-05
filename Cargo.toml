@@ -12,6 +12,7 @@ members = [
     "crates/swif-cli",
     "crates/swif-tun",
     "crates/swif-tray",
+    "crates/swif-ffi",
 ]
 default-members = [
     "crates/swif-wire",

@@ -10,3 +10,6 @@ edge.err
 edge.out
 cli.err
 cli.out
+core.err
+core.out
+core-cfg.json
