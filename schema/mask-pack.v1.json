@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swiftun.com/schema/mask-pack.v1.json",
+  "title": "SwifTun Mask Pack v1",
+  "type": "object",
+  "required": ["format", "pack_id", "min_core", "profiles", "signature"],
+  "properties": {
+    "format": { "const": 1 },
+    "pack_id": { "type": "string", "minLength": 3, "maxLength": 64 },
+    "min_core": { "type": "string", "description": "semver of swif_core" },
+    "issued_at": { "type": "string", "format": "date-time" },
+    "profiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "underlay", "shaper", "templates"],
+        "properties": {
+          "id": { "type": "string" },
+          "underlay": { "enum": ["tcp", "udp"] },
+          "default_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "shaper": {
+            "type": "object",
+            "required": ["length_hist", "idle_ms"],
+            "properties": {
+              "length_hist": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["bytes", "weight"],
+                  "properties": {
+                    "bytes": { "type": "integer" },
+                    "weight": { "type": "number" }
+                  }
+                }
+              },
+              "idle_ms": { "type": "integer", "minimum": 0 },
+              "jitter_ms": { "type": "integer", "minimum": 0 },
+              "max_pad": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "templates": {
+            "type": "object",
+            "description": "Opaque to session layer: ClientHello/QUIC Initial blobs as base64, grease policy, ALPN list, SNI strategy ref"
+          },
+          "cover": {
+            "type": "object",
+            "properties": {
+              "sni_pool_ref": { "type": "string" },
+              "alpn": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "flags": {
+      "type": "object",
+      "additionalProperties": { "type": ["boolean", "string", "number"] }
+    },
+    "signature": {
+      "type": "object",
+      "required": ["alg", "key_id", "sig_b64"],
+      "properties": {
+        "alg": { "const": "ed25519" },
+        "key_id": { "type": "string" },
+        "sig_b64": { "type": "string" }
+      }
+    }
+  }
+}

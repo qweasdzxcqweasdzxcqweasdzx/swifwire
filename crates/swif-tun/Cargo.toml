@@ -1,0 +1,17 @@
+[package]
+name = "swif-tun"
+version.workspace = true
+edition.workspace = true
+description = "Platform TUN glue — NullTun + optional OS TUN + UDP map"
+
+[features]
+default = []
+os-tun = ["dep:tun"]
+
+[dependencies]
+thiserror = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+swif-mux = { workspace = true }
+swif-wire = { workspace = true }
+tun = { version = "0.7", optional = true, features = ["async"] }

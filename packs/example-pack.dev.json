@@ -1,0 +1,64 @@
+{
+  "format": 1,
+  "pack_id": "dev-2026-11-05",
+  "min_core": "0.1.0",
+  "issued_at": "2026-11-05T00:00:00Z",
+  "profiles": [
+    {
+      "id": "tls13_stable",
+      "underlay": "tcp",
+      "default_port": 443,
+      "shaper": {
+        "length_hist": [
+          { "bytes": 64, "weight": 1 },
+          { "bytes": 512, "weight": 3 },
+          { "bytes": 1200, "weight": 5 },
+          { "bytes": 1400, "weight": 2 }
+        ],
+        "idle_ms": 15000,
+        "jitter_ms": 40,
+        "max_pad": 800
+      },
+      "templates": {
+        "note": "Replace with real ClientHello templates before prod; not a fingerprint copy of a third-party client.",
+        "client_hello_b64": null,
+        "grease": true
+      },
+      "cover": {
+        "sni_pool_ref": "pool.stable.v1",
+        "alpn": ["h2", "http/1.1"]
+      }
+    },
+    {
+      "id": "quic_fast",
+      "underlay": "udp",
+      "default_port": 443,
+      "shaper": {
+        "length_hist": [
+          { "bytes": 1200, "weight": 8 },
+          { "bytes": 800, "weight": 2 }
+        ],
+        "idle_ms": 8000,
+        "jitter_ms": 20,
+        "max_pad": 400
+      },
+      "templates": {
+        "note": "QUIC Initial cover templates TBD",
+        "quic_initial_b64": null
+      },
+      "cover": {
+        "sni_pool_ref": "pool.quic.v1",
+        "alpn": ["h3"]
+      }
+    }
+  ],
+  "flags": {
+    "early_control": true,
+    "legacy_fallback": true
+  },
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "dev-pack-1",
+    "sig_b64": "REPLACE_WITH_REAL_SIGNATURE"
+  }
+}

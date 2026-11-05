@@ -1,0 +1,15 @@
+[package]
+name = "swif-tray"
+version.workspace = true
+edition.workspace = true
+description = "Minimal lab shell: start/stop swif-cli (console; WinForms tray via scripts/tray-lab.ps1)"
+
+[[bin]]
+name = "swif-tray"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

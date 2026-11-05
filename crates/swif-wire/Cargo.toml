@@ -1,0 +1,12 @@
+[package]
+name = "swif-wire"
+version.workspace = true
+edition.workspace = true
+description = "SwifWire v0 framing, varints, frame types"
+
+[dependencies]
+bytes = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+hex = { workspace = true }

@@ -1,0 +1,61 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/swif-wire",
+    "crates/swif-crypto",
+    "crates/swif-shape",
+    "crates/swif-session",
+    "crates/swif-mux",
+    "crates/swif-mask",
+    "crates/swif-core",
+    "crates/swif-edge",
+    "crates/swif-cli",
+    "crates/swif-tun",
+    "crates/swif-tray",
+]
+default-members = [
+    "crates/swif-wire",
+    "crates/swif-crypto",
+    "crates/swif-shape",
+    "crates/swif-session",
+    "crates/swif-mux",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Proprietary"
+authors = ["SwifTun"]
+
+[workspace.dependencies]
+swif-wire = { path = "crates/swif-wire" }
+swif-crypto = { path = "crates/swif-crypto" }
+swif-shape = { path = "crates/swif-shape" }
+swif-session = { path = "crates/swif-session" }
+swif-mux = { path = "crates/swif-mux" }
+swif-mask = { path = "crates/swif-mask" }
+swif-core = { path = "crates/swif-core" }
+swif-tun = { path = "crates/swif-tun" }
+thiserror = "2"
+bytes = "1"
+rand = "0.8"
+sha2 = "0.10"
+hkdf = "0.12"
+chacha20poly1305 = "0.10"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+zeroize = { version = "1", features = ["derive"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+base64 = "0.22"
+async-trait = "0.1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-pki-types = "1"
+rcgen = "0.13"

@@ -1,0 +1,12 @@
+/target/
+**/*.key
+server.pub
+Cargo.lock
+*.pdb
+.deps/
+third_party/wintun/*.dll
+lab-cert.der.json
+edge.err
+edge.out
+cli.err
+cli.out

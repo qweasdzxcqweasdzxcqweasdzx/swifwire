@@ -1,0 +1,29 @@
+[package]
+name = "swif-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "swif-cli"
+path = "src/main.rs"
+
+[dependencies]
+swif-crypto = { workspace = true }
+swif-session = { workspace = true }
+swif-mux = { workspace = true }
+swif-shape = { workspace = true }
+swif-wire = { workspace = true }
+swif-mask = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+hex = { workspace = true }
+bytes = { workspace = true }
+serde_json = { workspace = true }
+swif-tun = { workspace = true }
+
+[features]
+default = []
+os-tun = ["swif-tun/os-tun"]

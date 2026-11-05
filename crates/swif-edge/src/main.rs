@@ -1,0 +1,452 @@
+//! SwifWire edge: null_tcp | tls13_stable (+ cover mirror) | quic_fast UDP.
+
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use anyhow::{bail, Context, Result};
+use clap::Parser;
+use swif_crypto::StaticKeypair;
+use swif_mask::{
+    accept_tls, decode_pref_datagram, encode_pref_datagram, plausible_hello_len, read_pref,
+    serve_builtin_http, write_pem, write_pref, LabTlsMaterial,
+};
+use swif_mux::Mux;
+use swif_session::{server_respond_keys, SessionTransport};
+use swif_shape::{Shaper, ShaperProfile};
+use swif_tun::{decode_udp4, encode_udp4_reply};
+use swif_wire::{Frame, FrameType};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tracing::{error, info, warn};
+
+#[derive(Parser, Debug)]
+#[command(name = "swif-edge")]
+struct Args {
+    #[arg(long, default_value = "127.0.0.1:9443")]
+    listen: SocketAddr,
+    #[arg(long, default_value = "server.key")]
+    key: PathBuf,
+    #[arg(long, default_value = "server.pub")]
+    pub_out: PathBuf,
+    /// null_tcp | tls13_stable | quic_fast
+    #[arg(long, default_value = "null_tcp")]
+    mask: String,
+    /// Optional upstream cover HTTP (else builtin HTML).
+    #[arg(long)]
+    cover: Option<SocketAddr>,
+    #[arg(long, default_value = "cover.local")]
+    sni: String,
+    #[arg(long, default_value = "lab-cert.der.json")]
+    tls_material: PathBuf,
+}
+
+fn load_or_create_key(path: &PathBuf, pub_path: &PathBuf) -> Result<StaticKeypair> {
+    use rand::RngCore;
+    let kp = if path.exists() {
+        let bytes = std::fs::read(path)?;
+        if bytes.len() != 32 {
+            bail!("key must be 32 bytes");
+        }
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&bytes);
+        StaticKeypair::from_secret_bytes(arr)
+    } else {
+        let mut sec = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut sec);
+        let kp = StaticKeypair::from_secret_bytes(sec);
+        std::fs::write(path, sec)?;
+        info!("generated {}", path.display());
+        kp
+    };
+    std::fs::write(pub_path, hex::encode(kp.public_bytes()))?;
+    Ok(kp)
+}
+
+fn load_or_create_tls(path: &PathBuf, sni: &str) -> Result<LabTlsMaterial> {
+    if path.exists() {
+        let v: serde_json::Value = serde_json::from_slice(&std::fs::read(path)?)?;
+        Ok(LabTlsMaterial {
+            cert_der: hex::decode(v["cert_hex"].as_str().context("cert_hex")?)?,
+            key_der: hex::decode(v["key_hex"].as_str().context("key_hex")?)?,
+            server_name: v["sni"].as_str().unwrap_or(sni).to_string(),
+        })
+    } else {
+        let m = LabTlsMaterial::generate(sni)?;
+        let doc = serde_json::json!({
+            "sni": m.server_name,
+            "cert_hex": hex::encode(&m.cert_der),
+            "key_hex": hex::encode(&m.key_der),
+        });
+        std::fs::write(path, serde_json::to_vec_pretty(&doc)?)?;
+        let _ = write_pem(&m, &PathBuf::from("lab-cover.crt"), &PathBuf::from("lab-cover.key"));
+        info!("generated TLS material {}", path.display());
+        Ok(m)
+    }
+}
+
+async fn session_loop<S>(mut client: S, key: Arc<StaticKeypair>, hello: Vec<u8>) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let (server_raw, keys) = server_respond_keys(&key, &hello, 0x07).context("handshake")?;
+    write_pref(&mut client, &server_raw).await?;
+
+    let mut sess = SessionTransport::new_server(keys, Shaper::new(ShaperProfile::default()));
+    let mut mux = Mux::new_server();
+    // Hot mask hint (MVP: offer current lab default for next dial).
+    let offer = swif_wire::mask_offer("tls13_stable", "lab");
+    write_pref(&mut client, &sess.seal_frame(&offer)?).await?;
+
+    loop {
+        let sealed = read_pref(&mut client).await?;
+        let (frame, _) = sess.open_frame(&sealed)?;
+        match frame.ty {
+            FrameType::Control => {
+                if let Some((ty, p)) = swif_wire::parse_ctrl(&frame) {
+                    match ty {
+                        swif_wire::CtrlType::MaskAck => {
+                            if let Some((id, ok)) = swif_wire::parse_mask_ack(&p) {
+                                info!("MASK_ACK {id} applied={ok}");
+                            }
+                        }
+                        swif_wire::CtrlType::Health => {
+                            if let Some((rtt, loss)) = swif_wire::parse_health(&p) {
+                                info!("HEALTH rtt={rtt} loss={loss}");
+                                let reply = swif_wire::health(rtt, loss);
+                                write_pref(&mut client, &sess.seal_frame(&reply)?).await?;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            FrameType::StreamOpen => {
+                let sid = mux.accept_open(&frame)?;
+                let target = parse_target_from_open_body(&frame.body)?;
+                info!("stream {sid} → {target}");
+                let mut remote = TcpStream::connect(&target).await?;
+                bidirectional_proxy(&mut client, &mut sess, &mut mux, sid, &mut remote).await?;
+                return Ok(());
+            }
+            FrameType::Datagram => {
+                handle_udp_datagram(&mut client, &mut sess, &frame).await?;
+            }
+            FrameType::Ping => {
+                let pong = Frame::new(FrameType::Pong, frame.body.clone());
+                let out = sess.seal_frame(&pong)?;
+                write_pref(&mut client, &out).await?;
+            }
+            other => warn!("unexpected frame {other:?}"),
+        }
+    }
+}
+
+async fn handle_udp_datagram<S>(
+    client: &mut S,
+    sess: &mut SessionTransport,
+    frame: &Frame,
+) -> Result<()>
+where
+    S: AsyncWrite + Unpin,
+{
+    let (assoc, payload) = Mux::parse_datagram(frame)?;
+    // Lab TUN: raw IPv4/IPv6 L3 → echo (OS routing lands later with wintun).
+    if matches!(payload.first(), Some(0x45 | 0x60)) {
+        info!("TUN L3 echo {} bytes assoc={assoc}", payload.len());
+        let out = Mux::datagram_frame(assoc, &payload);
+        write_pref(client, &sess.seal_frame(&out)?).await?;
+        return Ok(());
+    }
+    let Some((ip, port, data)) = decode_udp4(&payload) else {
+        warn!("bad datagram payload");
+        return Ok(());
+    };
+    let addr = SocketAddr::from((std::net::Ipv4Addr::from(ip), port));
+    let sock = UdpSocket::bind("0.0.0.0:0").await?;
+    sock.send_to(data, addr).await?;
+    let mut buf = vec![0u8; 64 * 1024];
+    let (n, from) = tokio::time::timeout(std::time::Duration::from_secs(5), sock.recv_from(&mut buf))
+        .await
+        .context("udp recv timeout")??;
+    let src_ip = match from {
+        SocketAddr::V4(v4) => v4.ip().octets(),
+        _ => ip,
+    };
+    let reply_body = encode_udp4_reply(src_ip, from.port(), &buf[..n]);
+    let out = Mux::datagram_frame(assoc, &reply_body);
+    write_pref(client, &sess.seal_frame(&out)?).await?;
+    Ok(())
+}
+
+fn parse_target_from_open_body(body: &[u8]) -> Result<String> {
+    if body.len() < 9 {
+        bail!("short open");
+    }
+    let (mlen, vn) = swif_wire::decode_varint_u32(&body[8..])?;
+    let start = 8 + vn;
+    let end = start + mlen as usize;
+    if end > body.len() {
+        bail!("meta truncated");
+    }
+    Ok(String::from_utf8_lossy(&body[start..end]).to_string())
+}
+
+async fn bidirectional_proxy<S>(
+    client: &mut S,
+    sess: &mut SessionTransport,
+    mux: &mut Mux,
+    sid: u32,
+    remote: &mut TcpStream,
+) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let mut remote_buf = vec![0u8; 32 * 1024];
+    loop {
+        tokio::select! {
+            sealed = read_pref(client) => {
+                let sealed = sealed?;
+                let (frame, _) = sess.open_frame(&sealed)?;
+                match frame.ty {
+                    FrameType::StreamData => {
+                        let (id, data) = mux.on_data(&frame)?;
+                        if id != sid { continue; }
+                        if data.is_empty() {
+                            return Ok(());
+                        }
+                        remote.write_all(&data).await?;
+                    }
+                    FrameType::StreamReset => return Ok(()),
+                    FrameType::Ping => {
+                        let pong = Frame::new(FrameType::Pong, frame.body.clone());
+                        write_pref(client, &sess.seal_frame(&pong)?).await?;
+                    }
+                    _ => {}
+                }
+            }
+            n = remote.read(&mut remote_buf) => {
+                let n = n?;
+                if n == 0 {
+                    let fin = mux.data_frame(sid, b"")?;
+                    write_pref(client, &sess.seal_frame(&fin)?).await?;
+                    return Ok(());
+                }
+                let f = mux.data_frame(sid, &remote_buf[..n])?;
+                write_pref(client, &sess.seal_frame(&f)?).await?;
+            }
+        }
+    }
+}
+
+async fn handle_null(mut client: TcpStream, key: Arc<StaticKeypair>) -> Result<()> {
+    let hello = read_pref(&mut client).await.context("client hello")?;
+    session_loop(client, key, hello).await
+}
+
+async fn handle_tls(
+    tcp: TcpStream,
+    key: Arc<StaticKeypair>,
+    acceptor: Arc<tokio_rustls::TlsAcceptor>,
+    _cover: Option<SocketAddr>,
+) -> Result<()> {
+    let mut tls = accept_tls(tcp, &acceptor).await?;
+    let mut lb = [0u8; 4];
+    if tls.read_exact(&mut lb).await.is_err() {
+        return Ok(());
+    }
+    let n = u32::from_be_bytes(lb) as usize;
+    if !plausible_hello_len(n) {
+        let mut prefix = lb.to_vec();
+        // try read a bit more for HTTP
+        let mut extra = vec![0u8; 2048];
+        if let Ok(m) = tokio::time::timeout(
+            std::time::Duration::from_millis(80),
+            tls.read(&mut extra),
+        )
+        .await
+        {
+            if let Ok(m) = m {
+                prefix.extend_from_slice(&extra[..m]);
+            }
+        }
+        info!("probe/cover path (bad len={n})");
+        serve_builtin_http(&mut tls, &prefix).await?;
+        return Ok(());
+    }
+    let mut hello = vec![0u8; n];
+    tls.read_exact(&mut hello).await?;
+    match server_respond_keys(&key, &hello, 0x07) {
+        Ok((server_raw, keys)) => {
+            write_pref(&mut tls, &server_raw).await?;
+            let mut sess = SessionTransport::new_server(keys, Shaper::new(ShaperProfile::default()));
+            let mut mux = Mux::new_server();
+            let offer = swif_wire::mask_offer("tls13_stable", "lab");
+            write_pref(&mut tls, &sess.seal_frame(&offer)?).await?;
+            loop {
+                let sealed = read_pref(&mut tls).await?;
+                let (frame, _) = sess.open_frame(&sealed)?;
+                match frame.ty {
+                    FrameType::Control => {
+                        if let Some((swif_wire::CtrlType::MaskAck, p)) = swif_wire::parse_ctrl(&frame)
+                        {
+                            if let Some((id, ok)) = swif_wire::parse_mask_ack(&p) {
+                                info!("MASK_ACK {id} applied={ok}");
+                            }
+                        }
+                    }
+                    FrameType::StreamOpen => {
+                        let sid = mux.accept_open(&frame)?;
+                        let target = parse_target_from_open_body(&frame.body)?;
+                        info!("tls stream {sid} → {target}");
+                        let mut remote = TcpStream::connect(&target).await?;
+                        bidirectional_proxy(&mut tls, &mut sess, &mut mux, sid, &mut remote).await?;
+                        return Ok(());
+                    }
+                    FrameType::Ping => {
+                        let pong = Frame::new(FrameType::Pong, frame.body.clone());
+                        write_pref(&mut tls, &sess.seal_frame(&pong)?).await?;
+                    }
+                    other => warn!("unexpected {other:?}"),
+                }
+            }
+        }
+        Err(e) => {
+            info!("inner auth fail → cover ({e})");
+            let mut prefix = Vec::with_capacity(4 + hello.len());
+            prefix.extend_from_slice(&lb);
+            prefix.extend_from_slice(&hello);
+            serve_builtin_http(&mut tls, &prefix).await?;
+            Ok(())
+        }
+    }
+}
+
+async fn run_quic(listen: SocketAddr, key: Arc<StaticKeypair>) -> Result<()> {
+    let sock = Arc::new(UdpSocket::bind(listen).await?);
+    info!("quic_fast UDP listen {listen}");
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let (n, peer) = sock.recv_from(&mut buf).await?;
+        let Some((dcid, hello)) = decode_pref_datagram(&buf[..n]) else {
+            continue;
+        };
+        let sock = sock.clone();
+        let key = key.clone();
+        tokio::spawn(async move {
+            if let Err(e) = handle_quic_session(sock, peer, dcid, hello, key).await {
+                error!("quic {peer}: {e:#}");
+            }
+        });
+    }
+}
+
+async fn handle_quic_session(
+    sock: Arc<UdpSocket>,
+    peer: SocketAddr,
+    dcid: [u8; 8],
+    hello: Vec<u8>,
+    key: Arc<StaticKeypair>,
+) -> Result<()> {
+    let (server_raw, keys) = server_respond_keys(&key, &hello, 0x07)?;
+    let pkt = encode_pref_datagram(&dcid, &server_raw);
+    sock.send_to(&pkt, peer).await?;
+
+    let mut sess = SessionTransport::new_server(keys, Shaper::new(ShaperProfile::default()));
+    let mut mux = Mux::new_server();
+    let mut buf = vec![0u8; 64 * 1024];
+
+    // Expect STREAM_OPEN then DATA — simplified single-stream over UDP datagrams
+    let n = sock.recv_from(&mut buf).await?;
+    let (_id, sealed) = decode_pref_datagram(&buf[..n.0])
+        .ok_or_else(|| anyhow::anyhow!("bad datagram"))?;
+    let (frame, _) = sess.open_frame(&sealed)?;
+    if frame.ty != FrameType::StreamOpen {
+        bail!("expected open");
+    }
+    let sid = mux.accept_open(&frame)?;
+    let target = parse_target_from_open_body(&frame.body)?;
+    info!("quic stream {sid} → {target}");
+    let mut remote = TcpStream::connect(&target).await?;
+
+    // one-shot: collect client data datagrams until empty, write remote, reply
+    loop {
+        tokio::select! {
+            r = sock.recv_from(&mut buf) => {
+                let (n, from) = r?;
+                if from != peer { continue; }
+                let Some((_, sealed)) = decode_pref_datagram(&buf[..n]) else { continue; };
+                let (frame, _) = sess.open_frame(&sealed)?;
+                match frame.ty {
+                    FrameType::StreamData => {
+                        let (id, data) = mux.on_data(&frame)?;
+                        if id != sid { continue; }
+                        if data.is_empty() {
+                            return Ok(());
+                        }
+                        remote.write_all(&data).await?;
+                        // read remote response chunk
+                        let mut rb = vec![0u8; 32 * 1024];
+                        let rn = remote.read(&mut rb).await?;
+                        let f = mux.data_frame(sid, &rb[..rn])?;
+                        let out = encode_pref_datagram(&dcid, &sess.seal_frame(&f)?);
+                        sock.send_to(&out, peer).await?;
+                        if rn == 0 {
+                            return Ok(());
+                        }
+                    }
+                    FrameType::StreamReset => return Ok(()),
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter("info")
+        .init();
+    let args = Args::parse();
+    let key = Arc::new(load_or_create_key(&args.key, &args.pub_out)?);
+    info!(
+        "swif-edge listen {} mask={} pub={}",
+        args.listen,
+        args.mask,
+        hex::encode(key.public_bytes())
+    );
+
+    if args.mask == "quic_fast" {
+        return run_quic(args.listen, key).await;
+    }
+    if args.mask == "tls13_stable" {
+        let material = load_or_create_tls(&args.tls_material, &args.sni)?;
+        let acceptor = Arc::new(material.acceptor()?);
+        let listener = TcpListener::bind(args.listen).await?;
+        loop {
+            let (sock, peer) = listener.accept().await?;
+            let key = key.clone();
+            let acceptor = acceptor.clone();
+            let cover = args.cover;
+            tokio::spawn(async move {
+                if let Err(e) = handle_tls(sock, key, acceptor, cover).await {
+                    error!("tls peer {peer}: {e:#}");
+                }
+            });
+        }
+    }
+    if args.mask != "null_tcp" {
+        bail!("unknown mask {}", args.mask);
+    }
+    let listener = TcpListener::bind(args.listen).await?;
+    loop {
+        let (sock, peer) = listener.accept().await?;
+        let key = key.clone();
+        tokio::spawn(async move {
+            if let Err(e) = handle_null(sock, key).await {
+                error!("peer {peer}: {e:#}");
+            }
+        });
+    }
+}

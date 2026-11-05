@@ -1,0 +1,10 @@
+[package]
+name = "swif-mux"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+swif-wire = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+rand = { workspace = true }

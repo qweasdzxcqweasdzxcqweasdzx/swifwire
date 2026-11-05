@@ -1,0 +1,16 @@
+[package]
+name = "swif-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+swif-wire = { workspace = true }
+swif-crypto = { workspace = true }
+swif-session = { workspace = true }
+swif-mux = { workspace = true }
+swif-shape = { workspace = true }
+swif-mask = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+hex = { workspace = true }
