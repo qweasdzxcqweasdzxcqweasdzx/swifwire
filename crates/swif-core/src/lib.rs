@@ -97,6 +97,7 @@ impl CoreConfig {
                 pack_url: None,
                 pack_trust_pub_hex: self.pack_trust_pub_hex.clone(),
                 tls_material_path: self.tls_material_path.clone(),
+                tls_verify: "pin".into(),
             },
         })
     }

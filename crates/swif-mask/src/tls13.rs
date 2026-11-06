@@ -1,4 +1,4 @@
-//! `tls13_stable` — TLS 1.3 underlay (lab pin / optional PEM material).
+//! `tls13_stable` — TLS 1.3 underlay (lab pin / webpki / PEM material).
 
 use std::path::Path;
 use std::sync::Arc;
@@ -6,11 +6,21 @@ use std::sync::Arc;
 use base64::Engine;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
-use rustls::{ClientConfig, DigitallySignedStruct, Error as TlsError, SignatureScheme};
+use rustls::{ClientConfig, DigitallySignedStruct, Error as TlsError, RootCertStore, SignatureScheme};
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream as ClientTls;
 use tokio_rustls::server::TlsStream as ServerTls;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
+
+/// How the client verifies the cover TLS certificate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum TlsVerifyMode {
+    /// Lab: exact DER pin to `LabTlsMaterial.cert_der`.
+    #[default]
+    Pin,
+    /// Prod: webpki Mozilla roots (+ optional future SPKI pin).
+    Webpki,
+}
 
 #[derive(Clone)]
 pub struct LabTlsMaterial {
@@ -58,6 +68,22 @@ impl LabTlsMaterial {
             .with_custom_certificate_verifier(verifier)
             .with_no_client_auth();
         Ok(TlsConnector::from(Arc::new(cfg)))
+    }
+
+    pub fn connector_webpki(&self) -> std::io::Result<TlsConnector> {
+        let mut roots = RootCertStore::empty();
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let cfg = ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        Ok(TlsConnector::from(Arc::new(cfg)))
+    }
+
+    pub fn connector(&self, mode: TlsVerifyMode) -> std::io::Result<TlsConnector> {
+        match mode {
+            TlsVerifyMode::Pin => self.connector_pin(),
+            TlsVerifyMode::Webpki => self.connector_webpki(),
+        }
     }
 
     /// Load leaf cert + PKCS8 key from PEM files (prod cover material).
@@ -168,11 +194,27 @@ pub async fn dial_tls(
     addr: std::net::SocketAddr,
     material: &LabTlsMaterial,
 ) -> std::io::Result<ClientTls<TcpStream>> {
+    dial_tls_verify(addr, material, TlsVerifyMode::Pin).await
+}
+
+pub async fn dial_tls_verify(
+    addr: std::net::SocketAddr,
+    material: &LabTlsMaterial,
+    verify: TlsVerifyMode,
+) -> std::io::Result<ClientTls<TcpStream>> {
     let tcp = TcpStream::connect(addr).await?;
-    let connector = material.connector_pin()?;
+    let connector = material.connector(verify)?;
     let name = ServerName::try_from(material.server_name.clone())
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
     connector.connect(name, tcp).await
+}
+
+pub fn parse_tls_verify(s: &str) -> Option<TlsVerifyMode> {
+    match s {
+        "pin" | "lab" => Some(TlsVerifyMode::Pin),
+        "webpki" | "system" | "prod" => Some(TlsVerifyMode::Webpki),
+        _ => None,
+    }
 }
 
 pub async fn accept_tls(

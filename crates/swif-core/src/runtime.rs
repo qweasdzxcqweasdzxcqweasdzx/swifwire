@@ -8,7 +8,8 @@ use std::thread;
 use std::time::Duration;
 
 use swif_mask::{
-    dial_tls, read_pref, write_pref, LabTlsMaterial, MaskDial, NullTcp,
+    dial_tls_verify, parse_tls_verify, read_pref, write_pref, LabTlsMaterial, MaskDial, NullTcp,
+    TlsVerifyMode,
 };
 use swif_mux::Mux;
 use swif_session::{client_finish_keys, client_hello_inner, SessionTransport};
@@ -17,9 +18,11 @@ use swif_wire::FrameType;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Runtime;
+use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
 use crate::config::Outbound;
+use crate::policy::DialPolicy;
 use crate::CoreError;
 
 pub struct RuntimeEngine {
@@ -108,7 +111,8 @@ async fn run_socks_loop(outbound: Outbound, stop: Arc<AtomicBool>) -> Result<(),
     .parse()
     .map_err(|e: std::net::AddrParseError| CoreError::Msg(e.to_string()))?;
     let pubk = parse_pub(&outbound.settings.server_pub_hex)?;
-    let mask = outbound.settings.mask.clone();
+    let mut mask = outbound.settings.mask.clone();
+    let verify = parse_tls_verify(&outbound.settings.tls_verify).unwrap_or(TlsVerifyMode::Pin);
     let tls = if mask == "tls13_stable" {
         let path = outbound
             .settings
@@ -119,9 +123,9 @@ async fn run_socks_loop(outbound: Outbound, stop: Arc<AtomicBool>) -> Result<(),
     } else {
         None
     };
-    if mask == "quic_fast" {
+    if mask == "quic_fast" || mask == "quic_lab" {
         return Err(CoreError::Msg(
-            "quic_fast SOCKS runtime not in core yet; use swif-cli".into(),
+            "quic_lab SOCKS runtime not in core yet; use swif-cli / SWIF_ALLOW_QUIC_LAB".into(),
         ));
     }
     // Commercial: null_tcp only with explicit lab opt-in.
@@ -131,12 +135,20 @@ async fn run_socks_loop(outbound: Outbound, stop: Arc<AtomicBool>) -> Result<(),
         ));
     }
 
+    let policy = Arc::new(Mutex::new(DialPolicy::default()));
+    {
+        let mut p = policy.lock().await;
+        if let Some(m) = crate::policy::MaskId::parse(&mask) {
+            p.preferred = m;
+        }
+    }
+
     let listener = TcpListener::bind(socks)
         .await
         .map_err(|e| CoreError::Msg(format!("socks bind {socks}: {e}")))?;
     info!(
-        "swif-core runtime SOCKS {} → {} mask={}",
-        socks, server, mask
+        "swif-core runtime SOCKS {} → {} mask={} tls_verify={:?}",
+        socks, server, mask, verify
     );
 
     loop {
@@ -147,10 +159,17 @@ async fn run_socks_loop(outbound: Outbound, stop: Arc<AtomicBool>) -> Result<(),
         let Ok(Ok((sock, _))) = accept else {
             continue;
         };
+        {
+            let p = policy.lock().await;
+            mask = p.current().as_str().to_string();
+        }
         let mask = mask.clone();
         let tls = tls.clone();
+        let policy = policy.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_one(sock, server, pubk, &mask, tls.as_ref()).await {
+            if let Err(e) =
+                handle_one(sock, server, pubk, &mask, tls.as_ref(), verify, policy).await
+            {
                 warn!("proxy: {e:#}");
             }
         });
@@ -179,24 +198,41 @@ async fn handle_one(
     pubk: [u8; 32],
     mask: &str,
     tls: Option<&LabTlsMaterial>,
+    verify: TlsVerifyMode,
+    policy: Arc<Mutex<DialPolicy>>,
 ) -> anyhow::Result<()> {
     let (host, port) = socks_handshake(&mut local).await?;
     let target = format!("{host}:{port}");
     match mask {
         "null_tcp" => {
             let remote = dial_null_retry(server).await?;
+            {
+                let mut p = policy.lock().await;
+                p.on_success();
+            }
             pump_session(local, remote, pubk, target).await
         }
         "tls13_stable" => {
             let material = tls.ok_or_else(|| anyhow::anyhow!("tls material missing"))?;
             let mut last = None;
             for attempt in 1..=3u32 {
-                match dial_tls(server, material).await {
-                    Ok(remote) => return pump_session(local, remote, pubk, target).await,
+                match dial_tls_verify(server, material, verify).await {
+                    Ok(remote) => {
+                        {
+                            let mut p = policy.lock().await;
+                            p.on_success();
+                        }
+                        return pump_session(local, remote, pubk, target).await;
+                    }
                     Err(e) => {
                         warn!("tls dial attempt {attempt}/3 failed: {e}");
+                        let backoff = {
+                            let mut p = policy.lock().await;
+                            let (_next, ms) = p.on_handshake_timeout();
+                            ms
+                        };
                         last = Some(e);
-                        tokio::time::sleep(Duration::from_millis(150 * attempt as u64)).await;
+                        tokio::time::sleep(Duration::from_millis(backoff.max(150) as u64)).await;
                     }
                 }
             }
@@ -258,7 +294,7 @@ where
     write_pref(&mut remote, &hello).await?;
     let server_raw = read_pref(&mut remote).await?;
     let keys = client_finish_keys(server_pub, &eph, &hello, &server_raw)?;
-    let mut sess = SessionTransport::new_client(keys, Shaper::new(ShaperProfile::default()));
+    let mut sess = SessionTransport::new_client(keys, Shaper::new(ShaperProfile::desktop()));
     let mut mux = Mux::new_client();
 
     let sealed0 = read_pref(&mut remote).await?;

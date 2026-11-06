@@ -84,7 +84,9 @@ Free every allocated char* with swif_string_free.
 
 ## Hardening status
 
-Read docs/HARDENING.md. Open: pack-driven ClientHello FP, webpki client default, quic_stable, shaper on_idle, DialPolicy wiring, smoke-probe-cover.
+Read docs/HARDENING.md.
+Done: SwifHS v0, resume_fs, cover mirror, PEM, SWIF_LAB, tls_verify pin|webpki, shaper idle, DialPolicy (tls-sticky), smoke-probe-cover.
+Open: pack-driven ClientHello FP, quic_stable, legacy dual-stack.
 
 ## Docs map (read in order for tasks)
 

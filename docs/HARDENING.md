@@ -34,3 +34,12 @@ Goal language: measurable cover / probe-resistance, swappable masks — **not** 
 4. **Prod TLS edge:** require cover upstream **or** `SWIF_LAB=1`.
 
 ## Prod-hardening DoD → see `docs/DOD.md` section `v0.3.0-harden`
+
+## Progress log
+
+| Date | Change |
+|------|--------|
+| 0.2.x harden-1 | SwifHS v0 spec; resume_fs; cover mirror; PEM; SWIF_LAB |
+| 0.2.x harden-2 | webpki verify mode; shaper idle/min_pad; DialPolicy runtime; smoke-probe-cover |
+
+**Still open:** pack-driven JA3/JA4 templates; real QUIC mask; legacy dual-stack.

@@ -9,7 +9,7 @@ use clap::Parser;
 use swif_crypto::StaticKeypair;
 use swif_mask::{
     accept_tls, decode_pref_datagram, encode_pref_datagram, plausible_hello_len, read_pref,
-    serve_cover, write_pem, write_pref, CoverMode, LabTlsMaterial,
+    read_pref_timeout, serve_cover, write_pem, write_pref, CoverMode, LabTlsMaterial,
 };
 use swif_mux::Mux;
 use swif_session::{server_respond_keys, SessionTransport};
@@ -129,14 +129,22 @@ where
     let (server_raw, keys) = server_respond_keys(&key, &hello, 0x07).context("handshake")?;
     write_pref(&mut client, &server_raw).await?;
 
-    let mut sess = SessionTransport::new_server(keys, Shaper::new(ShaperProfile::default()));
+    let mut sess = SessionTransport::new_server(keys, Shaper::new(ShaperProfile::desktop()));
     let mut mux = Mux::new_server();
     // Hot mask hint (MVP: offer current lab default for next dial).
     let offer = swif_wire::mask_offer("tls13_stable", "lab");
     write_pref(&mut client, &sess.seal_frame(&offer)?).await?;
 
     loop {
-        let sealed = read_pref(&mut client).await?;
+        let sealed = match read_pref_timeout(&mut client, sess.idle_timeout()).await? {
+            Some(s) => s,
+            None => {
+                if let Some(idle) = sess.seal_idle_cover()? {
+                    write_pref(&mut client, &idle).await?;
+                }
+                continue;
+            }
+        };
         let (frame, _) = sess.open_frame(&sealed)?;
         match frame.ty {
             FrameType::Control => {
@@ -171,8 +179,7 @@ where
             }
             FrameType::Ping => {
                 let pong = Frame::new(FrameType::Pong, frame.body.clone());
-                let out = sess.seal_frame(&pong)?;
-                write_pref(&mut client, &out).await?;
+                write_pref(&mut client, &sess.seal_frame(&pong)?).await?;
             }
             other => warn!("unexpected frame {other:?}"),
         }
@@ -316,12 +323,20 @@ async fn handle_tls(
     match server_respond_keys(&key, &hello, 0x07) {
         Ok((server_raw, keys)) => {
             write_pref(&mut tls, &server_raw).await?;
-            let mut sess = SessionTransport::new_server(keys, Shaper::new(ShaperProfile::default()));
+            let mut sess = SessionTransport::new_server(keys, Shaper::new(ShaperProfile::desktop()));
             let mut mux = Mux::new_server();
             let offer = swif_wire::mask_offer("tls13_stable", "lab");
             write_pref(&mut tls, &sess.seal_frame(&offer)?).await?;
             loop {
-                let sealed = read_pref(&mut tls).await?;
+                let sealed = match read_pref_timeout(&mut tls, sess.idle_timeout()).await? {
+                    Some(s) => s,
+                    None => {
+                        if let Some(idle) = sess.seal_idle_cover()? {
+                            write_pref(&mut tls, &idle).await?;
+                        }
+                        continue;
+                    }
+                };
                 let (frame, _) = sess.open_frame(&sealed)?;
                 match frame.ty {
                     FrameType::Control => {

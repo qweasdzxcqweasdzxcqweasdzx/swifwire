@@ -22,6 +22,13 @@ pub struct OutboundSettings {
     /// Path to lab-cert.der.json for tls13_stable (same as swif-cli --tls-material).
     #[serde(default)]
     pub tls_material_path: Option<String>,
+    /// `pin` (lab default) | `webpki` (prod public CA).
+    #[serde(default = "default_tls_verify")]
+    pub tls_verify: String,
+}
+
+fn default_tls_verify() -> String {
+    "pin".into()
 }
 
 fn default_mask() -> String {
@@ -172,6 +179,7 @@ impl Outbound {
                 pack_url: None,
                 pack_trust_pub_hex: None,
                 tls_material_path: None,
+                tls_verify: default_tls_verify(),
             },
         })
     }
@@ -206,6 +214,7 @@ impl Inbound {
                 pack_url: None,
                 pack_trust_pub_hex: None,
                 tls_material_path: None,
+                tls_verify: default_tls_verify(),
             },
         };
         ShareLink {
@@ -268,6 +277,7 @@ mod tests {
                 pack_url: None,
                 pack_trust_pub_hex: None,
                 tls_material_path: None,
+                tls_verify: default_tls_verify(),
             },
         };
         let uri = o.to_uri();

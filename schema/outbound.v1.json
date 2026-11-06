@@ -26,6 +26,12 @@
         "tls_material_path": {
           "type": "string",
           "description": "Path to tls-material.v1.json for tls13_stable"
+        },
+        "tls_verify": {
+          "type": "string",
+          "enum": ["pin", "webpki"],
+          "default": "pin",
+          "description": "pin=lab DER pin; webpki=Mozilla roots (prod public CA)"
         }
       }
     }

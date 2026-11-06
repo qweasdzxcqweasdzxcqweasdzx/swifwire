@@ -62,6 +62,7 @@ impl SessionTransport {
         let (key, salt) = self.send_key_salt();
         let out = seal_record(key, salt, self.send_counter, RecordHdr::v0(), &shaped)?;
         self.send_counter += 1;
+        self.shaper.mark_activity();
         Ok(out)
     }
 
@@ -70,7 +71,21 @@ impl SessionTransport {
         let (key, salt) = self.send_key_salt();
         let out = seal_record(key, salt, self.send_counter, RecordHdr::v0(), &shaped)?;
         self.send_counter += 1;
+        self.shaper.mark_activity();
         Ok(out)
+    }
+
+    /// Idle cover: Ping with shaped opaque body (no TUN/SOCKS payload).
+    pub fn seal_idle_cover(&mut self) -> Result<Option<Vec<u8>>> {
+        let Some(pad) = self.shaper.on_idle() else {
+            return Ok(None);
+        };
+        let frame = swif_wire::bodies::ping(&pad);
+        Ok(Some(self.seal_frame(&frame)?))
+    }
+
+    pub fn idle_timeout(&self) -> std::time::Duration {
+        self.shaper.idle_timeout()
     }
 
     /// Decrypt one record from front of buffer; returns frame + pad leftover ignored.
@@ -78,6 +93,7 @@ impl SessionTransport {
         let (key, salt) = self.recv_key_salt();
         let (_hdr, pt, n) = open_record(key, salt, self.recv_counter, input)?;
         self.recv_counter += 1;
+        self.shaper.mark_activity();
         let (frame, _) = Frame::decode_with_pad(&pt)?;
         Ok((frame, n))
     }
