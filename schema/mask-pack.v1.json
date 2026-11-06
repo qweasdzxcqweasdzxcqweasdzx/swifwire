@@ -41,7 +41,21 @@
           },
           "templates": {
             "type": "object",
-            "description": "Opaque to session layer: ClientHello/QUIC Initial blobs as base64, grease policy, ALPN list, SNI strategy ref"
+            "description": "Opaque to session layer — pack-driven FP (WP2C)",
+            "properties": {
+              "client_hello_profile": {
+                "type": "string",
+                "enum": ["chrome_stable", "firefox_stable", "rustls_default"],
+                "description": "Named uTLS-like profile id; rustls_default = current lab"
+              },
+              "extension_order": { "type": "array", "items": { "type": "string" } },
+              "cipher_suites": { "type": "array", "items": { "type": "string" } },
+              "alpn": { "type": "array", "items": { "type": "string" } },
+              "grease": { "type": "boolean", "default": true },
+              "record_size_hint": { "type": "integer" },
+              "quic_initial_b64": { "type": "string" },
+              "sni_pool_ref": { "type": "string" }
+            }
           },
           "cover": {
             "type": "object",

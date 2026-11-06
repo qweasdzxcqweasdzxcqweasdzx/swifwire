@@ -75,9 +75,16 @@ Free every allocated char* with swif_string_free.
 1. Never put server.key in client configs, git, or chat logs.
 2. Do not enable null_tcp on public nodes unless SWIF_ALLOW_NULL=1 intentionally (lab only).
 3. Prefer tls13_stable + real cover domain/cert in production.
-4. After changing inbound, restart swif-edge sidecar; republish swif:// with new pub if key rotated.
-5. Smoke locally: scripts/smoke-all.ps1 (Windows lab).
-6. Release pack: scripts/release-win.ps1 → dist/swifwire-win-x64-VERSION.zip
+4. Prod tls13_stable edge REQUIRES --cover/--cover-upstream OR SWIF_LAB=1 (builtin HTML is lab-only).
+5. Prefer --tls-cert/--tls-key PEM for prod; JSON lab-cert.der.json is lab.
+6. Handshake is SwifHS v0 (not Noise_IK). See docs/WIRE.md §4 and docs/HARDENING.md.
+7. quic_fast == quic_lab thin cover — not prod default.
+8. After changing inbound, restart swif-edge sidecar; republish swif:// with new pub if key rotated.
+9. Smoke: scripts/smoke-all.ps1 (sets SWIF_LAB=1). Release: scripts/release-win.ps1.
+
+## Hardening status
+
+Read docs/HARDENING.md. Open: pack-driven ClientHello FP, webpki client default, quic_stable, shaper on_idle, DialPolicy wiring, smoke-probe-cover.
 
 ## Docs map (read in order for tasks)
 

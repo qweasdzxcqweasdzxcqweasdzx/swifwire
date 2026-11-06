@@ -1,5 +1,6 @@
-//! `tls13_stable` — real TLS 1.3 underlay (lab: self-signed / pinned).
+//! `tls13_stable` — TLS 1.3 underlay (lab pin / optional PEM material).
 
+use std::path::Path;
 use std::sync::Arc;
 
 use base64::Engine;
@@ -57,6 +58,60 @@ impl LabTlsMaterial {
             .with_custom_certificate_verifier(verifier)
             .with_no_client_auth();
         Ok(TlsConnector::from(Arc::new(cfg)))
+    }
+
+    /// Load leaf cert + PKCS8 key from PEM files (prod cover material).
+    pub fn from_pem_files(
+        cert_path: &Path,
+        key_path: &Path,
+        server_name: &str,
+    ) -> std::io::Result<Self> {
+        let cert_pem = std::fs::read(cert_path)?;
+        let key_pem = std::fs::read(key_path)?;
+        Self::from_pem_bytes(&cert_pem, &key_pem, server_name)
+    }
+
+    pub fn from_pem_bytes(
+        cert_pem: &[u8],
+        key_pem: &[u8],
+        server_name: &str,
+    ) -> std::io::Result<Self> {
+        let certs = rustls_pemfile::certs(&mut &cert_pem[..])
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        if certs.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "no CERTIFICATE in PEM",
+            ));
+        }
+        let key = rustls_pemfile::private_key(&mut &key_pem[..])
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "no PRIVATE KEY in PEM")
+            })?;
+        Ok(Self {
+            cert_der: certs[0].as_ref().to_vec(),
+            key_der: key.secret_der().to_vec(),
+            server_name: server_name.to_string(),
+        })
+    }
+
+    /// Acceptor with full chain (leaf first) when PEM had intermediates.
+    pub fn acceptor_with_chain(&self, chain_ders: Vec<Vec<u8>>) -> std::io::Result<TlsAcceptor> {
+        let mut certs: Vec<CertificateDer<'static>> = chain_ders
+            .into_iter()
+            .map(CertificateDer::from)
+            .collect();
+        if certs.is_empty() {
+            certs.push(CertificateDer::from(self.cert_der.clone()));
+        }
+        let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(self.key_der.clone()));
+        let cfg = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        Ok(TlsAcceptor::from(Arc::new(cfg)))
     }
 }
 

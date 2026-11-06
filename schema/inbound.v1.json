@@ -22,7 +22,15 @@
           "default": "tls13_stable"
         },
         "sni": { "type": "string", "default": "cover.local" },
-        "cover": { "type": "string", "description": "optional HTTP cover upstream host:port" },
+        "cover": { "type": "string", "description": "HTTP cover upstream host:port (mirror after TLS terminate)" },
+        "cover_mode": {
+          "type": "string",
+          "enum": ["mirror_upstream", "builtin_http"],
+          "default": "mirror_upstream",
+          "description": "builtin_http requires SWIF_LAB=1 on edge"
+        },
+        "tls_cert_path": { "type": "string", "description": "PEM cert path (prod)" },
+        "tls_key_path": { "type": "string", "description": "PEM key path (prod)" },
         "egress": {
           "type": "string",
           "description": "direct | socks5://127.0.0.1:PORT (Xray bridge)",

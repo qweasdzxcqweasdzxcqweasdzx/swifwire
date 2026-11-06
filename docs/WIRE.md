@@ -126,35 +126,59 @@ bit5  fake_dns
 
 ---
 
-## 4. Handshake messages (inside mask pipe, pre-AEAD)
+## 4. Handshake messages (inside mask pipe, pre-AEAD) — **SwifHS v0**
 
-Не AEAD-record. Формат **логического** plaintext, который mask driver отправляет как payload своих application records:
+Не AEAD-record. Это **не** Noise_IK / `snow`. Имя протокола: **SwifHS v0** (`PROTOCOL_VERSION = 0`).  
+Миграция на настоящий Noise_IK = bump `version` + новый профиль.
 
-### 4.1 ClientHelloInner
+Логический plaintext внутри mask application data:
+
+### 4.1 ClientHelloInner (encode)
 
 ```
-magic_inner:  [u8;4] = 0x53 0x57 0x49 0x31   // "SWI1" — ONLY inside mask, never on bare TCP
-version:      u16 = 0
+magic_inner:  [u8;4] = 0x53 0x57 0x49 0x31   // "SWI1" — ONLY inside mask
+version:      u16 BE = 0
 eph_pub:      [u8;32]
-noise_msg:    varbytes   // Noise_IK message pattern first
-caps:         u64
-pad:          random 0..N per shaper pre-hs profile
-```
-
-### 4.2 ServerHelloInner
-
-```
-version:      u16
-eph_pub:      [u8;32]
-noise_msg:    varbytes
-caps:         u64
-ticket:       varbytes   // may be empty
+static_proof: [u8;32]   // SHA256(shared || label) — see below
+caps:         u64 BE
+ticket_len:   u16 BE
+ticket:       bytes
+pad_len:      u16 BE
 pad:          random
 ```
 
-**Важно:** `magic_inner` виден только после успешной расшифровки/интерпретации mask application data. На wire до mask decrypt его нет. Probe без ключа маски/сессии magic не видит.
+### 4.2 ServerHelloInner (encode)
 
-Если Noise fail: сервер **не** отвечает ServerHelloInner; продолжает cover.
+```
+version:      u16 BE
+eph_pub:      [u8;32]
+static_proof: [u8;32]
+caps:         u64 BE
+ticket_len:   u16 BE
+ticket:       bytes
+pad_len:      u16 BE
+pad:          random
+```
+
+### 4.3 SwifHS v0 key schedule (full HS)
+
+1. Client eph × server static → `es`; client proof = `SHA256(es || "client-es")`
+2. Server eph × client eph → `ee`; server proof = `SHA256(ee || "server-ee")`
+3. `shared = es || ee` (64 bytes)
+4. `transcript = SHA256(client_raw || server_raw)`
+5. Session keys = existing `derive_session_keys(shared, transcript)` (HKDF in swif-crypto)
+6. Resume PSK = `SHA256(shared || "ticket-secret")` sealed into ticket
+
+### 4.4 Resume modes
+
+| Mode | Client `eph_pub` | Proof labels | FS |
+|------|------------------|--------------|----|
+| `resume_fast` (default) | 32× `0x00` | `client-resume` / `server-resume` | no |
+| `resume_fs` | fresh eph | `client-resume-fs` / `server-resume-fs`; keys from `psk \|\| ee` | yes |
+
+**Важно:** `magic_inner` только внутри mask. Probe без ключа маски magic не видит.
+
+Если SwifHS fail: сервер **не** отвечает ServerHelloInner; продолжает cover (`mirror_upstream` или lab `builtin_http`).
 
 ---
 

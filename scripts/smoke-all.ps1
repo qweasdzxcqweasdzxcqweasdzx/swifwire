@@ -3,6 +3,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $env:Path = "$env:USERPROFILE\.cargo\bin;" + $env:Path
 $env:SWIF_ALLOW_NULL = "1"
+$env:SWIF_LAB = "1"
 Set-Location $root
 
 Get-Process swif-edge,swif-cli,swif-core-run -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue

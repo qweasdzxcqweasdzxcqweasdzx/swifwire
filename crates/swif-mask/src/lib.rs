@@ -7,7 +7,9 @@ mod probe;
 mod quic_fast;
 mod tls13;
 
-pub use cover::{mirror_to_upstream, run_lab_cover, serve_builtin_http, COVER_HTML};
+pub use cover::{
+    mirror_to_upstream, run_lab_cover, serve_builtin_http, serve_cover, CoverMode, COVER_HTML,
+};
 pub use probe::cover_looks_like_http_origin;
 pub use io::{plausible_hello_len, read_pref, write_pref};
 pub use pack::{
@@ -41,7 +43,8 @@ pub fn parse_profile(id: &str) -> Option<&'static str> {
     match id {
         "null_tcp" => Some("null_tcp"),
         "tls13_stable" => Some("tls13_stable"),
-        "quic_fast" => Some("quic_fast"),
+        // Thin UDP cover — lab alias; prod DialPolicy must not prefer this (WP3 → quic_stable).
+        "quic_fast" | "quic_lab" => Some("quic_fast"),
         _ => None,
     }
 }

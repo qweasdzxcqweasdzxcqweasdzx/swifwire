@@ -8,6 +8,7 @@
 | Поднимаете ноду / панель / sidecar | [SERVER_OPS.md](SERVER_OPS.md) |
 | Агент/LLM на сервере (автоконфиг, ops) | [../llms.txt](../llms.txt) → [SERVER_OPS.md](SERVER_OPS.md) + JSON Schema |
 | Разбираете wire / крипто | [WIRE.md](WIRE.md), [DESIGN.md](DESIGN.md) |
+| Hardening / DPI gaps | [HARDENING.md](HARDENING.md) |
 | Пакуете коммерческий Windows | [COMMERCIAL.md](COMMERCIAL.md) |
 | Встраиваете в 3x-ui | [EMBED.md](EMBED.md) |
 

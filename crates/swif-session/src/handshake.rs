@@ -1,4 +1,7 @@
-//! Simplified Noise_IK-like 1-RTT + ticket resume (X25519 + transcript SHA-256).
+//! SwifHS v0 — 1-RTT static-DH handshake + ticket resume (X25519 + SHA-256 proofs).
+//!
+//! Not Noise_IK / `snow`. Wire layout frozen as SwifHS v0 (see docs/WIRE.md §4).
+//! Noise_IK migration requires PROTOCOL_VERSION bump.
 
 use rand::RngCore;
 use sha2::{Digest, Sha256};
@@ -11,6 +14,16 @@ use swif_wire::{MAGIC_INNER, PROTOCOL_VERSION};
 use crate::error::{Error, Result};
 
 const TICKET_TTL_SECS: u64 = 24 * 3600;
+
+/// Ticket resume policy (explicit; DESIGN §C.5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ResumeMode {
+    /// Current lab/prod: eph_pub = 0, keys from ticket PSK only (no FS).
+    #[default]
+    Fast,
+    /// Fresh client+server ephemeral mixed with PSK (forward secrecy on resume).
+    Fs,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum HandshakeRole {
@@ -190,16 +203,42 @@ pub fn client_hello_inner(server_static_pub: [u8; 32], caps: u64) -> (Vec<u8>, E
     (encode_client(&ch), eph)
 }
 
-/// Resume hello: sealed ticket + proof under resume PSK.
+/// Resume hello (`ResumeMode::Fast`): sealed ticket + proof under resume PSK; eph = 0.
 pub fn client_resume_hello(ticket_blob: &[u8], resume_psk: &[u8; 32], caps: u64) -> Vec<u8> {
-    let ch = ClientHelloInner {
-        eph_pub: [0u8; 32],
-        static_proof: proof(resume_psk, b"client-resume"),
-        caps,
-        ticket: ticket_blob.to_vec(),
-        pad: random_pad(32),
-    };
-    encode_client(&ch)
+    client_resume_hello_mode(ticket_blob, resume_psk, caps, ResumeMode::Fast)
+        .0
+}
+
+/// Resume hello with explicit mode. `Fs` returns fresh ephemeral for `client_finish_resume_fs`.
+pub fn client_resume_hello_mode(
+    ticket_blob: &[u8],
+    resume_psk: &[u8; 32],
+    caps: u64,
+    mode: ResumeMode,
+) -> (Vec<u8>, Option<EphemeralKeypair>) {
+    match mode {
+        ResumeMode::Fast => {
+            let ch = ClientHelloInner {
+                eph_pub: [0u8; 32],
+                static_proof: proof(resume_psk, b"client-resume"),
+                caps,
+                ticket: ticket_blob.to_vec(),
+                pad: random_pad(32),
+            };
+            (encode_client(&ch), None)
+        }
+        ResumeMode::Fs => {
+            let eph = EphemeralKeypair::generate();
+            let ch = ClientHelloInner {
+                eph_pub: eph.public.to_bytes(),
+                static_proof: proof(resume_psk, b"client-resume-fs"),
+                caps,
+                ticket: ticket_blob.to_vec(),
+                pad: random_pad(48),
+            };
+            (encode_client(&ch), Some(eph))
+        }
+    }
 }
 
 /// Server validates client hello; full HS or ticket resume.
@@ -222,25 +261,50 @@ pub fn server_respond_keys_ex(
 ) -> Result<(Vec<u8>, SessionKeys, bool)> {
     let ch = decode_client(client_raw)?;
 
-    if !ch.ticket.is_empty() && ch.eph_pub == [0u8; 32] {
+    if !ch.ticket.is_empty() {
         let (secret, exp) = open_ticket(ticket_master, &ch.ticket).map_err(|_| Error::Handshake)?;
         if ticket_expired(exp, now_unix()) {
             return Err(Error::Handshake);
         }
-        if proof(&secret, b"client-resume") != ch.static_proof {
+        // Fast resume: sentinel zero eph.
+        if ch.eph_pub == [0u8; 32] {
+            if proof(&secret, b"client-resume") != ch.static_proof {
+                return Err(Error::Handshake);
+            }
+            let new_ticket = issue_ticket(ticket_master, &secret)?;
+            let sh = ServerHelloInner {
+                eph_pub: [0u8; 32],
+                static_proof: proof(&secret, b"server-resume"),
+                caps,
+                ticket: new_ticket,
+                pad: random_pad(32),
+            };
+            let server_raw = encode_server(&sh);
+            let tr = transcript(&[client_raw, &server_raw]);
+            let keys = derive_session_keys(&secret, &tr);
+            return Ok((server_raw, keys, true));
+        }
+        // Fs resume: fresh ee mixed with ticket PSK.
+        if proof(&secret, b"client-resume-fs") != ch.static_proof {
             return Err(Error::Handshake);
         }
+        let client_eph = public_from_bytes(ch.eph_pub);
+        let eph = EphemeralKeypair::generate();
+        let ee = eph.diffie_hellman(&client_eph);
+        let mut shared = [0u8; 64];
+        shared[..32].copy_from_slice(&secret);
+        shared[32..].copy_from_slice(ee.as_bytes());
         let new_ticket = issue_ticket(ticket_master, &secret)?;
         let sh = ServerHelloInner {
-            eph_pub: [0u8; 32],
-            static_proof: proof(&secret, b"server-resume"),
+            eph_pub: eph.public.to_bytes(),
+            static_proof: proof(ee.as_bytes(), b"server-resume-fs"),
             caps,
             ticket: new_ticket,
-            pad: random_pad(32),
+            pad: random_pad(48),
         };
         let server_raw = encode_server(&sh);
         let tr = transcript(&[client_raw, &server_raw]);
-        let keys = derive_session_keys(&secret, &tr);
+        let keys = derive_session_keys(&shared, &tr);
         return Ok((server_raw, keys, true));
     }
 
@@ -304,7 +368,7 @@ pub fn client_finish_keys_ex(
     Ok((keys, psk))
 }
 
-/// Client finishes resume. Returns keys + refreshed ticket blob.
+/// Client finishes `ResumeMode::Fast`. Returns keys + refreshed ticket blob.
 pub fn client_finish_resume(
     resume_psk: &[u8; 32],
     client_raw: &[u8],
@@ -316,6 +380,27 @@ pub fn client_finish_resume(
     }
     let tr = transcript(&[client_raw, server_raw]);
     let keys = derive_session_keys(resume_psk, &tr);
+    Ok((keys, sh.ticket))
+}
+
+/// Client finishes `ResumeMode::Fs` (needs client ephemeral from hello).
+pub fn client_finish_resume_fs(
+    resume_psk: &[u8; 32],
+    client_eph: &EphemeralKeypair,
+    client_raw: &[u8],
+    server_raw: &[u8],
+) -> Result<(SessionKeys, Vec<u8>)> {
+    let sh = decode_server(server_raw)?;
+    let server_eph = public_from_bytes(sh.eph_pub);
+    let ee = client_eph.diffie_hellman(&server_eph);
+    if proof(ee.as_bytes(), b"server-resume-fs") != sh.static_proof {
+        return Err(Error::Handshake);
+    }
+    let mut shared = [0u8; 64];
+    shared[..32].copy_from_slice(resume_psk);
+    shared[32..].copy_from_slice(ee.as_bytes());
+    let tr = transcript(&[client_raw, server_raw]);
+    let keys = derive_session_keys(&shared, &tr);
     Ok((keys, sh.ticket))
 }
 
@@ -361,5 +446,45 @@ mod tests {
             client_finish_resume(&psk, &resume_hello, &server_raw2).unwrap();
         assert_eq!(keys_c2.k_c2s.0, keys_s2.k_c2s.0);
         assert!(t0.elapsed().as_millis() < 2000);
+    }
+
+    #[test]
+    fn ticket_resume_fs_agrees() {
+        let server = StaticKeypair::generate();
+        let master = server.public_bytes();
+        let (c1, eph) = client_hello_inner(server.public_bytes(), 0x7);
+        let (s1, _, _) = server_respond_keys_ex(&server, &master, &c1, 0x7).unwrap();
+        let (_, psk) = client_finish_keys_ex(server.public_bytes(), &eph, &c1, &s1).unwrap();
+        let ticket = server_hello_ticket(&s1).unwrap();
+
+        let (rh, eph_r) = client_resume_hello_mode(&ticket, &psk, 0x7, ResumeMode::Fs);
+        let eph_r = eph_r.expect("fs eph");
+        let (sr, keys_s, resumed) = server_respond_keys_ex(&server, &master, &rh, 0x7).unwrap();
+        assert!(resumed);
+        let (keys_c, _) = client_finish_resume_fs(&psk, &eph_r, &rh, &sr).unwrap();
+        assert_eq!(keys_c.k_c2s.0, keys_s.k_c2s.0);
+    }
+
+    #[test]
+    fn wrong_server_key_fails() {
+        let server = StaticKeypair::generate();
+        let other = StaticKeypair::generate();
+        let (client_raw, _) = client_hello_inner(server.public_bytes(), 0x7);
+        // Cover path: wrong static cannot satisfy client-es proof.
+        assert!(server_respond_keys(&other, &client_raw, 0x7).is_err());
+    }
+
+    #[test]
+    fn wrong_ticket_proof_fails() {
+        let server = StaticKeypair::generate();
+        let master = server.public_bytes();
+        let (c1, eph) = client_hello_inner(server.public_bytes(), 0x7);
+        let (s1, _, _) = server_respond_keys_ex(&server, &master, &c1, 0x7).unwrap();
+        let (_, psk) = client_finish_keys_ex(server.public_bytes(), &eph, &c1, &s1).unwrap();
+        let ticket = server_hello_ticket(&s1).unwrap();
+        let bad_psk = [9u8; 32];
+        let rh = client_resume_hello(&ticket, &bad_psk, 0x7);
+        assert!(server_respond_keys_ex(&server, &master, &rh, 0x7).is_err());
+        let _ = psk;
     }
 }

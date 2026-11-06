@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **WP0/WP1/WP2 (partial harden):** `docs/HARDENING.md`; SwifHS v0 in WIRE §4; `ResumeMode::{Fast,Fs}`; edge `--cover`/`--cover-upstream` → mirror; PEM `--tls-cert`/`--tls-key`; `SWIF_LAB` prod guard; `quic_lab` alias
 - Docs for client developers + server/LLM agents: `docs/INDEX.md`, `CLIENT_SDK.md`, `SERVER_OPS.md`, `llms.txt`, `AGENTS.md`
 - Schemas: `core-config.v1`, `core-status.v1`, `tls-material.v1`
 

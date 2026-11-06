@@ -9,7 +9,7 @@ use clap::Parser;
 use swif_crypto::StaticKeypair;
 use swif_mask::{
     accept_tls, decode_pref_datagram, encode_pref_datagram, plausible_hello_len, read_pref,
-    serve_builtin_http, write_pem, write_pref, LabTlsMaterial,
+    serve_cover, write_pem, write_pref, CoverMode, LabTlsMaterial,
 };
 use swif_mux::Mux;
 use swif_session::{server_respond_keys, SessionTransport};
@@ -32,13 +32,22 @@ struct Args {
     /// null_tcp (lab, needs SWIF_ALLOW_NULL=1) | tls13_stable | quic_fast
     #[arg(long, default_value = "tls13_stable")]
     mask: String,
-    /// Optional upstream cover HTTP (else builtin HTML).
+    /// Upstream cover origin `host:port` (plain TCP after TLS terminate). Prod: required unless SWIF_LAB=1.
     #[arg(long)]
     cover: Option<SocketAddr>,
+    /// Alias for --cover (ops / SERVER_OPS naming).
+    #[arg(long)]
+    cover_upstream: Option<SocketAddr>,
     #[arg(long, default_value = "cover.local")]
     sni: String,
     #[arg(long, default_value = "lab-cert.der.json")]
     tls_material: PathBuf,
+    /// PEM certificate (leaf or chain). Overrides JSON material when set with --tls-key.
+    #[arg(long)]
+    tls_cert: Option<PathBuf>,
+    /// PEM private key (PKCS8).
+    #[arg(long)]
+    tls_key: Option<PathBuf>,
 }
 
 fn load_or_create_key(path: &PathBuf, pub_path: &PathBuf) -> Result<StaticKeypair> {
@@ -63,16 +72,34 @@ fn load_or_create_key(path: &PathBuf, pub_path: &PathBuf) -> Result<StaticKeypai
     Ok(kp)
 }
 
-fn load_or_create_tls(path: &PathBuf, sni: &str) -> Result<LabTlsMaterial> {
+fn lab_mode() -> bool {
+    std::env::var("SWIF_LAB").ok().as_deref() == Some("1")
+}
+
+fn resolve_cover(args: &Args) -> Option<SocketAddr> {
+    args.cover_upstream.or(args.cover)
+}
+
+fn load_tls_material(args: &Args) -> Result<LabTlsMaterial> {
+    if let (Some(cert), Some(key)) = (&args.tls_cert, &args.tls_key) {
+        return Ok(LabTlsMaterial::from_pem_files(cert, key, &args.sni)?);
+    }
+    let path = &args.tls_material;
     if path.exists() {
         let v: serde_json::Value = serde_json::from_slice(&std::fs::read(path)?)?;
         Ok(LabTlsMaterial {
             cert_der: hex::decode(v["cert_hex"].as_str().context("cert_hex")?)?,
             key_der: hex::decode(v["key_hex"].as_str().context("key_hex")?)?,
-            server_name: v["sni"].as_str().unwrap_or(sni).to_string(),
+            server_name: v["sni"].as_str().unwrap_or(&args.sni).to_string(),
         })
     } else {
-        let m = LabTlsMaterial::generate(sni)?;
+        if !lab_mode() {
+            bail!(
+                "tls13_stable needs --tls-cert/--tls-key or existing {} (or SWIF_LAB=1 to auto-generate)",
+                path.display()
+            );
+        }
+        let m = LabTlsMaterial::generate(&args.sni)?;
         let doc = serde_json::json!({
             "sni": m.server_name,
             "cert_hex": hex::encode(&m.cert_der),
@@ -80,9 +107,19 @@ fn load_or_create_tls(path: &PathBuf, sni: &str) -> Result<LabTlsMaterial> {
         });
         std::fs::write(path, serde_json::to_vec_pretty(&doc)?)?;
         let _ = write_pem(&m, &PathBuf::from("lab-cover.crt"), &PathBuf::from("lab-cover.key"));
-        info!("generated TLS material {}", path.display());
+        info!("generated TLS material {} (SWIF_LAB)", path.display());
         Ok(m)
     }
+}
+
+fn cover_mode_for(upstream: Option<SocketAddr>) -> Result<CoverMode> {
+    if upstream.is_some() {
+        return Ok(CoverMode::MirrorUpstream);
+    }
+    if lab_mode() {
+        return Ok(CoverMode::BuiltinHttp);
+    }
+    bail!("tls13_stable prod requires --cover / --cover-upstream (or SWIF_LAB=1 for builtin cover)")
 }
 
 async fn session_loop<S>(mut client: S, key: Arc<StaticKeypair>, hello: Vec<u8>) -> Result<()>
@@ -248,7 +285,8 @@ async fn handle_tls(
     tcp: TcpStream,
     key: Arc<StaticKeypair>,
     acceptor: Arc<tokio_rustls::TlsAcceptor>,
-    _cover: Option<SocketAddr>,
+    cover: Option<SocketAddr>,
+    cover_mode: CoverMode,
 ) -> Result<()> {
     let mut tls = accept_tls(tcp, &acceptor).await?;
     let mut lb = [0u8; 4];
@@ -258,7 +296,6 @@ async fn handle_tls(
     let n = u32::from_be_bytes(lb) as usize;
     if !plausible_hello_len(n) {
         let mut prefix = lb.to_vec();
-        // try read a bit more for HTTP
         let mut extra = vec![0u8; 2048];
         if let Ok(m) = tokio::time::timeout(
             std::time::Duration::from_millis(80),
@@ -270,8 +307,8 @@ async fn handle_tls(
                 prefix.extend_from_slice(&extra[..m]);
             }
         }
-        info!("probe/cover path (bad len={n})");
-        serve_builtin_http(&mut tls, &prefix).await?;
+        info!("probe/cover path (bad len={n}) mode={cover_mode:?}");
+        serve_cover(tls, &prefix, cover_mode, cover).await?;
         return Ok(());
     }
     let mut hello = vec![0u8; n];
@@ -312,11 +349,11 @@ async fn handle_tls(
             }
         }
         Err(e) => {
-            info!("inner auth fail → cover ({e})");
+            info!("inner auth fail → cover ({e}) mode={cover_mode:?}");
             let mut prefix = Vec::with_capacity(4 + hello.len());
             prefix.extend_from_slice(&lb);
             prefix.extend_from_slice(&hello);
-            serve_builtin_http(&mut tls, &prefix).await?;
+            serve_cover(tls, &prefix, cover_mode, cover).await?;
             Ok(())
         }
     }
@@ -417,20 +454,25 @@ async fn main() -> Result<()> {
         hex::encode(key.public_bytes())
     );
 
-    if args.mask == "quic_fast" {
+    if args.mask == "quic_fast" || args.mask == "quic_lab" {
+        if !lab_mode() {
+            warn!("quic_fast/quic_lab is thin UDP cover — lab only; set SWIF_LAB=1 to silence");
+        }
         return run_quic(args.listen, key).await;
     }
     if args.mask == "tls13_stable" {
-        let material = load_or_create_tls(&args.tls_material, &args.sni)?;
+        let cover = resolve_cover(&args);
+        let cover_mode = cover_mode_for(cover)?;
+        let material = load_tls_material(&args)?;
         let acceptor = Arc::new(material.acceptor()?);
+        info!("tls cover_mode={cover_mode:?} upstream={cover:?}");
         let listener = TcpListener::bind(args.listen).await?;
         loop {
             let (sock, peer) = listener.accept().await?;
             let key = key.clone();
             let acceptor = acceptor.clone();
-            let cover = args.cover;
             tokio::spawn(async move {
-                if let Err(e) = handle_tls(sock, key, acceptor, cover).await {
+                if let Err(e) = handle_tls(sock, key, acceptor, cover, cover_mode).await {
                     error!("tls peer {peer}: {e:#}");
                 }
             });

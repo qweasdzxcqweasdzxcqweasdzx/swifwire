@@ -1,4 +1,5 @@
-//! `quic_fast` — thin UDP cover with QUIC-looking long-header wrapper (lab, not Chrome FP).
+//! `quic_fast` / **`quic_lab`** — thin UDP long-header wrapper (lab only; not Chrome FP).
+//! WP3 will introduce pack-driven `quic_stable`; do not use as prod DialPolicy default.
 
 use std::net::SocketAddr;
 

@@ -10,6 +10,9 @@
     "mask": "tls13_stable",
     "sni": "cdn.example.com",
     "cover": "127.0.0.1:8443",
+    "cover_mode": "mirror_upstream",
+    "tls_cert_path": "/etc/swif/cover.crt",
+    "tls_key_path": "/etc/swif/cover.key",
     "egress": "direct",
     "clients": [
       { "email": "user1@swif", "enable": true }

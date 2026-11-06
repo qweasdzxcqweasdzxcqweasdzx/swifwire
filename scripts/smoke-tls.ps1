@@ -2,6 +2,7 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $env:Path = "$env:USERPROFILE\.cargo\bin;" + $env:Path
+$env:SWIF_LAB = "1"
 Set-Location $root
 
 cargo build -p swif-edge -p swif-cli --quiet
