@@ -1,5 +1,7 @@
 # Встраивание SwifWire в 3x-ui и VPN-клиенты
 
+Полные гайды: [CLIENT_SDK.md](CLIENT_SDK.md) (клиент), [SERVER_OPS.md](SERVER_OPS.md) (панель/edge), индекс [INDEX.md](INDEX.md), bootstrap для LLM: [../llms.txt](../llms.txt).
+
 SwifWire **не внутри Xray**. Как MTProto в 3x-ui: отдельный sidecar + опциональный SOCKS bridge.
 
 ## Артефакты

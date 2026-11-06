@@ -1,0 +1,125 @@
+# SwifWire — context for LLMs / server agents
+
+> Use this file as system/context bootstrap. Prefer JSON Schema under /schema over inventing fields.
+> Human index: docs/INDEX.md
+
+## What this project is
+
+SwifWire = custom tunnel protocol for SwifTun.
+Stack: Mask (wire appearance) || Session (Noise_IK-like X25519 + ChaCha20-Poly1305 AEAD + stream mux + datagram).
+NOT Xray protocol. NOT WireGuard. Edge runs as sidecar binary `swif-edge` (3x-ui MTProto pattern).
+Client embeds `swif-core` / `swifwire.dll` and exposes local SOCKS5; each CONNECT dials the edge.
+
+## Current version
+
+See VERSION file (commercial Windows pack 0.2.x). Default mask = tls13_stable.
+
+## Binaries
+
+- swif-edge.exe — node/server
+- swif-core-run.exe — client core (config JSON path arg)
+- swif-cli.exe — lab SOCKS client
+- swif-tray.exe — start/stop wrapper around swif-core-run
+- swifwire.dll + include/swifwire.h — C ABI
+
+## Subscription URI (canonical)
+
+```
+swif://HOST:PORT?pub=HEX64&mask=tls13_stable&sni=cdn.example.com
+```
+
+- pub: server static public key, 64 lowercase/upper hex chars (32 bytes)
+- mask: null_tcp | tls13_stable | quic_fast
+- sni: optional cover SNI for tls13_stable
+
+## Client core config (flat JSON accepted by swif_core_start / swif-core-run)
+
+Required (flat form):
+- server_addr: "host:port"
+- server_static_pub_hex: 64 hex
+Optional:
+- mask_profile: default tls13_stable
+- socks_listen: default 127.0.0.1:10808
+- tls_material_path: path to lab/prod TLS material JSON for tls13_stable (cert_hex, key_hex, sni)
+- start_runtime: bool, default true (false = config only, no SOCKS)
+- route_mode: "global" | others string (stored; routing policy evolving)
+- pack_trust_pub_hex: ed25519 trust for mask packs
+
+Also accepts nested `outbound` object matching schema/outbound.v1.json.
+
+Validate with: schema/core-config.v1.json
+
+## Panel inbound
+
+protocol MUST be "swifwire". See schema/inbound.v1.json and deploy/inbound.example.json.
+Supervisor starts: swif-edge --listen LISTEN:PORT --key server.key --pub-out server.pub --mask MASK [--sni] [--cover]
+
+## C ABI (stable surface)
+
+From include/swifwire.h:
+- swif_abi_version, swif_version, swif_string_free
+- swif_core_start(config_json, &err)
+- swif_core_stop()
+- swif_core_set_route_mode(mode, &err)
+- swif_core_import_subscription(url_or_blob, &err)
+- swif_core_apply_mask_pack(bytes, len, &err)
+- swif_core_status_alloc(&err) → JSON schema/core-status.v1.json
+- swif_core_outbound_alloc(&err)
+- swif_panel_edge_argv_alloc(inbound_json, &err)
+- swif_panel_share_uri_alloc(inbound_json, public_host, server_pub_hex, remark, &err)
+
+Free every allocated char* with swif_string_free.
+
+## Security / ops rules for agents
+
+1. Never put server.key in client configs, git, or chat logs.
+2. Do not enable null_tcp on public nodes unless SWIF_ALLOW_NULL=1 intentionally (lab only).
+3. Prefer tls13_stable + real cover domain/cert in production.
+4. After changing inbound, restart swif-edge sidecar; republish swif:// with new pub if key rotated.
+5. Smoke locally: scripts/smoke-all.ps1 (Windows lab).
+6. Release pack: scripts/release-win.ps1 → dist/swifwire-win-x64-VERSION.zip
+
+## Docs map (read in order for tasks)
+
+| Task | Docs |
+|------|------|
+| Integrate mobile/desktop client | docs/CLIENT_SDK.md |
+| Deploy edge / panel / AI ops | docs/SERVER_OPS.md |
+| Embed in 3x-ui | docs/EMBED.md |
+| Wire bytes / handshake | docs/WIRE.md |
+| Architecture rationale | docs/DESIGN.md |
+| Sell/self-host checklist | docs/COMMERCIAL.md |
+
+## Go panel helpers
+
+Package: bindings/go/swifwire
+- EdgeArgv(inbound) []string
+- ShareURI(host, port, pubHex, mask, sni) string
+- Supervisor{EdgeBin, WorkDir}.Start/Stop
+
+## What NOT to invent
+
+- Do not invent VLESS/Reality UUIDs for SwifWire.
+- Do not claim OS TUN is default — SOCKS is the supported product path; os-tun is optional feature.
+- quic_fast SOCKS path in core may be incomplete; prefer tls13_stable for production clients.
+- XHTTP is NOT implemented yet; may become a future mask pack — do not emit xhttp configs.
+
+## Example minimal client config
+
+```json
+{
+  "server_addr": "vpn.example.com:443",
+  "server_static_pub_hex": "REPLACE_WITH_64_HEX_SERVER_PUB",
+  "mask_profile": "tls13_stable",
+  "socks_listen": "127.0.0.1:10808",
+  "tls_material_path": "lab-cert.der.json",
+  "start_runtime": true,
+  "route_mode": "global"
+}
+```
+
+## Example share
+
+```
+swif://vpn.example.com:443?pub=ab…64hex…&mask=tls13_stable&sni=cdn.example.com
+```

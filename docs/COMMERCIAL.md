@@ -1,7 +1,9 @@
 # SwifWire — коммерческий self-hosted пакет (Windows)
 
 Рабочий продукт: **свой протокол + edge-нода + клиентский SOCKS-core**.  
-Не App Store VPN и не форк Xray — панель подключает `swif-edge` sidecar (см. EMBED.md).
+Не App Store VPN и не форк Xray — панель подключает `swif-edge` sidecar (см. [EMBED.md](EMBED.md)).
+
+Документация для интеграторов и серверных агентов: [INDEX.md](INDEX.md), [CLIENT_SDK.md](CLIENT_SDK.md), [SERVER_OPS.md](SERVER_OPS.md), [../llms.txt](../llms.txt).
 
 ## Состав релиза
 

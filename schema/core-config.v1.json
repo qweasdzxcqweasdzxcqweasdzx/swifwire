@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swiftun.com/schema/core-config.v1.json",
+  "title": "SwifWire core start config (flat or nested outbound)",
+  "description": "Accepted by swif_core_start / swif-core-run. Prefer flat fields for apps; nested outbound for panel parity.",
+  "type": "object",
+  "properties": {
+    "outbound": { "$ref": "outbound.v1.json" },
+    "server_addr": {
+      "type": "string",
+      "description": "host:port of swif-edge",
+      "examples": ["vpn.example.com:443"]
+    },
+    "server_static_pub_hex": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-fA-F]{64}$"
+    },
+    "mask_profile": {
+      "type": "string",
+      "enum": ["null_tcp", "tls13_stable", "quic_fast"],
+      "default": "tls13_stable"
+    },
+    "socks_listen": {
+      "type": "string",
+      "default": "127.0.0.1:10808"
+    },
+    "tls_material_path": {
+      "type": "string",
+      "description": "Path to JSON {sni,cert_hex,key_hex} for tls13_stable"
+    },
+    "pack_trust_pub_hex": { "type": "string" },
+    "start_runtime": {
+      "type": "boolean",
+      "default": true,
+      "description": "false = load config/status only, no SOCKS bind"
+    },
+    "route_mode": {
+      "type": "string",
+      "default": "global"
+    }
+  },
+  "anyOf": [
+    { "required": ["outbound"] },
+    { "required": ["server_addr", "server_static_pub_hex"] }
+  ]
+}

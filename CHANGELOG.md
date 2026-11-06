@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Docs for client developers + server/LLM agents: `docs/INDEX.md`, `CLIENT_SDK.md`, `SERVER_OPS.md`, `llms.txt`, `AGENTS.md`
+- Schemas: `core-config.v1`, `core-status.v1`, `tls-material.v1`
+
 ## 0.2.0
 
 Commercial Windows self-host package:

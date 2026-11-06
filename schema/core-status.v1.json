@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swiftun.com/schema/core-status.v1.json",
+  "title": "SwifWire core status JSON",
+  "description": "Returned by swif_core_status_alloc / core_status",
+  "type": "object",
+  "required": ["state", "mask", "route_mode", "bytes_up", "bytes_down"],
+  "properties": {
+    "state": {
+      "type": "string",
+      "enum": ["running", "started", "stopped"]
+    },
+    "mask": { "type": "string" },
+    "pack_id": { "type": ["string", "null"] },
+    "route_mode": { "type": "string" },
+    "socks_listen": { "type": ["string", "null"] },
+    "server": { "type": ["string", "null"] },
+    "bytes_up": { "type": "integer", "minimum": 0 },
+    "bytes_down": { "type": "integer", "minimum": 0 },
+    "last_error": { "type": ["string", "null"] }
+  }
+}

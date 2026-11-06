@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://swiftun.com/schema/tls-material.v1.json",
+  "title": "TLS cover material for tls13_stable mask",
+  "type": "object",
+  "required": ["sni", "cert_hex", "key_hex"],
+  "properties": {
+    "sni": { "type": "string" },
+    "cert_hex": { "type": "string", "description": "DER certificate as hex" },
+    "key_hex": { "type": "string", "description": "DER private key as hex" }
+  }
+}

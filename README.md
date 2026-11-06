@@ -1,20 +1,51 @@
 # SwifWire
 
-Собственный транспортный протокол и self-hosted edge/client для **SwifTun**.
+Собственный транспорт **SwifTun**: Mask ∥ Session (не VLESS / не WireGuard).  
+Клиент → локальный SOCKS5 → `swif-edge`. Панель держит edge как **sidecar**.
 
-| Документ | Назначение |
-|----------|------------|
-| [docs/COMMERCIAL.md](docs/COMMERCIAL.md) | Коммерческий пакет / релиз Windows |
-| [docs/EMBED.md](docs/EMBED.md) | Встройка в 3x-ui и VPN-клиенты |
-| [docs/DESIGN.md](docs/DESIGN.md) | Design doc |
-| [docs/WIRE.md](docs/WIRE.md) | Wire format v0 |
-| [docs/EDGE_RUNBOOK.md](docs/EDGE_RUNBOOK.md) | Edge ops |
-| [CHANGELOG.md](CHANGELOG.md) | Releases |
-| [schema/](schema/) | inbound / outbound / mask-pack |
+**Версия:** см. [VERSION](VERSION) · **Changelog:** [CHANGELOG.md](CHANGELOG.md)
+
+## С чего начать
+
+| Кто вы | Документ |
+|--------|----------|
+| Любой / навигация | **[docs/INDEX.md](docs/INDEX.md)** |
+| Разработчик клиента (VPN UI) | **[docs/CLIENT_SDK.md](docs/CLIENT_SDK.md)** |
+| Сервер / панель / нейросеть-агент | **[docs/SERVER_OPS.md](docs/SERVER_OPS.md)** + **[llms.txt](llms.txt)** |
+| Cursor / coding agents | **[AGENTS.md](AGENTS.md)** |
+| Wire / крипто | [docs/WIRE.md](docs/WIRE.md), [docs/DESIGN.md](docs/DESIGN.md) |
+| 3x-ui embed | [docs/EMBED.md](docs/EMBED.md) |
+| Windows commercial pack | [docs/COMMERCIAL.md](docs/COMMERCIAL.md) |
+
+## Транспорт (кратко)
+
+| Слой | Содержание |
+|------|------------|
+| Mask | `tls13_stable` (default), `quic_fast`, lab `null_tcp` |
+| Session | Noise_IK-like X25519 → ChaCha20-Poly1305 AEAD + mux |
+| Клиент UX | SOCKS5 (`swif-core` / C ABI); OS TUN — optional feature |
+
+Подписка:
+
+```
+swif://vpn.example.com:443?pub=<64hex>&mask=tls13_stable&sni=cdn.example.com
+```
+
+## Машиночитаемые схемы
+
+| Schema | Для чего |
+|--------|----------|
+| [schema/core-config.v1.json](schema/core-config.v1.json) | старт клиента |
+| [schema/core-status.v1.json](schema/core-status.v1.json) | status JSON |
+| [schema/outbound.v1.json](schema/outbound.v1.json) | outbound / embed |
+| [schema/inbound.v1.json](schema/inbound.v1.json) | панель inbound |
+| [schema/tls-material.v1.json](schema/tls-material.v1.json) | TLS cover material |
+| [schema/mask-pack.v1.json](schema/mask-pack.v1.json) | signed mask packs |
 | [include/swifwire.h](include/swifwire.h) | C ABI |
-| [bindings/go/swifwire](bindings/go/swifwire) | Go sidecar helpers |
 
-**Статус:** **`0.2.0`** — коммерческий Windows pack (SOCKS-core + edge). OS TUN — feature `os-tun` + admin.
+Примеры: [deploy/](deploy/).
+
+## Сборка и проверки
 
 ```powershell
 cargo test --workspace
@@ -23,11 +54,14 @@ cargo test --workspace
 ```
 
 ```powershell
-# прод-лаб (TLS mask)
 cargo run -p swif-edge -- --listen 0.0.0.0:9443 --mask tls13_stable --key server.key --pub-out server.pub
-# клиент: подставьте pub в deploy/client.config.example.json
+# подставьте pub в deploy/client.config.example.json
 cargo run -p swif-core --bin swif-core-run -- client.config.json
 curl.exe -x socks5h://127.0.0.1:10808 https://example.com/
 ```
 
-Lab-only `null_tcp` требует `SWIF_ALLOW_NULL=1`. Не цели: вечный обход DPI; замена Xray как единственного ядра панели.
+`null_tcp` только с `SWIF_ALLOW_NULL=1` (lab).
+
+## Репозиторий
+
+https://github.com/qweasdzxcqweasdzxcqweasdzx/swifwire
