@@ -15,3 +15,8 @@ core.out
 core-cfg.json
 client.runtime.json
 dist/
+probe.out
+probe.body.txt
+lab-cert.der.json
+lab-cover.crt
+lab-cover.key
