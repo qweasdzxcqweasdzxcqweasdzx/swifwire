@@ -41,6 +41,8 @@ pub struct CoreConfig {
     pub pack_trust_pub_hex: Option<String>,
     #[serde(default)]
     pub tls_material_path: Option<String>,
+    #[serde(default)]
+    pub legacy_fallback_uri: Option<String>,
     /// If true (default), start local SOCKS → edge tunnel.
     #[serde(default = "default_true")]
     pub start_runtime: bool,
@@ -98,6 +100,7 @@ impl CoreConfig {
                 pack_trust_pub_hex: self.pack_trust_pub_hex.clone(),
                 tls_material_path: self.tls_material_path.clone(),
                 tls_verify: "pin".into(),
+                legacy_fallback_uri: self.legacy_fallback_uri.clone(),
             },
         })
     }
@@ -114,6 +117,9 @@ pub struct CoreStatus {
     pub bytes_up: u64,
     pub bytes_down: u64,
     pub last_error: Option<String>,
+    /// Set when SwifWire dials exhausted and phase-1 legacy URI is configured.
+    #[serde(default)]
+    pub legacy_fallback_hint: Option<String>,
 }
 
 pub struct CoreHandle {
@@ -173,6 +179,7 @@ pub fn core_start(config_json: &str) -> Result<CoreHandle, CoreError> {
                 bytes_up: 0,
                 bytes_down: 0,
                 last_error: None,
+                legacy_fallback_hint: None,
             },
         }),
     })
@@ -247,10 +254,21 @@ pub fn core_apply_mask_pack(handle: &CoreHandle, bytes: &[u8]) -> Result<(), Cor
     let vk = PackVerifyingKey::from_bytes(arr).map_err(|e| CoreError::Pack(e.to_string()))?;
     let pack = verify_and_load(bytes, &vk).map_err(|e| CoreError::Pack(e.to_string()))?;
     g.status.pack_id = Some(pack.pack_id.clone());
-    if let Some(p) = pack.profiles.first() {
+    let prof = pack
+        .profile("tls13_stable")
+        .ok()
+        .or_else(|| pack.profiles.first());
+    if let Some(p) = prof {
         g.status.mask = p.id.clone();
         g.outbound.settings.mask = p.id.clone();
         g.policy.on_mask_offer(&p.id);
+        let hints = swif_mask::TlsPackHints::from_mask_profile(p);
+        tracing::info!(
+            "mask pack {} profile={} hello={}",
+            pack.pack_id,
+            p.id,
+            hints.profile.as_str()
+        );
     }
     g.pack = Some(pack);
     g.status.state = "pack_applied".into();

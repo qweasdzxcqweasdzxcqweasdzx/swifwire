@@ -27,6 +27,8 @@ pub struct LabTlsMaterial {
     pub cert_der: Vec<u8>,
     pub key_der: Vec<u8>,
     pub server_name: String,
+    /// Pack-driven ALPN / profile hints (WP2C).
+    pub hints: crate::tls_profile::TlsPackHints,
 }
 
 impl LabTlsMaterial {
@@ -46,16 +48,33 @@ impl LabTlsMaterial {
             cert_der: cert.der().to_vec(),
             key_der: key.serialize_der(),
             server_name: server_name.to_string(),
+            hints: crate::tls_profile::TlsPackHints::default(),
         })
+    }
+
+    pub fn with_hints(mut self, hints: crate::tls_profile::TlsPackHints) -> Self {
+        self.hints = hints;
+        self
+    }
+
+    fn apply_client_alpn(&self, cfg: &mut ClientConfig) {
+        let wire = self.hints.alpn_wire();
+        if !wire.is_empty() {
+            cfg.alpn_protocols = wire;
+        }
     }
 
     pub fn acceptor(&self) -> std::io::Result<TlsAcceptor> {
         let cert = CertificateDer::from(self.cert_der.clone());
         let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(self.key_der.clone()));
-        let cfg = rustls::ServerConfig::builder()
+        let mut cfg = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(vec![cert], key)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let wire = self.hints.alpn_wire();
+        if !wire.is_empty() {
+            cfg.alpn_protocols = wire;
+        }
         Ok(TlsAcceptor::from(Arc::new(cfg)))
     }
 
@@ -63,19 +82,21 @@ impl LabTlsMaterial {
         let verifier = Arc::new(PinCertVerifier {
             expect: self.cert_der.clone(),
         });
-        let cfg = ClientConfig::builder()
+        let mut cfg = ClientConfig::builder()
             .dangerous()
             .with_custom_certificate_verifier(verifier)
             .with_no_client_auth();
+        self.apply_client_alpn(&mut cfg);
         Ok(TlsConnector::from(Arc::new(cfg)))
     }
 
     pub fn connector_webpki(&self) -> std::io::Result<TlsConnector> {
         let mut roots = RootCertStore::empty();
         roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let cfg = ClientConfig::builder()
+        let mut cfg = ClientConfig::builder()
             .with_root_certificates(roots)
             .with_no_client_auth();
+        self.apply_client_alpn(&mut cfg);
         Ok(TlsConnector::from(Arc::new(cfg)))
     }
 
@@ -120,6 +141,7 @@ impl LabTlsMaterial {
             cert_der: certs[0].as_ref().to_vec(),
             key_der: key.secret_der().to_vec(),
             server_name: server_name.to_string(),
+            hints: crate::tls_profile::TlsPackHints::default(),
         })
     }
 
@@ -133,10 +155,14 @@ impl LabTlsMaterial {
             certs.push(CertificateDer::from(self.cert_der.clone()));
         }
         let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(self.key_der.clone()));
-        let cfg = rustls::ServerConfig::builder()
+        let mut cfg = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(certs, key)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let wire = self.hints.alpn_wire();
+        if !wire.is_empty() {
+            cfg.alpn_protocols = wire;
+        }
         Ok(TlsAcceptor::from(Arc::new(cfg)))
     }
 }

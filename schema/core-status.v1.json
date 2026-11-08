@@ -17,6 +17,10 @@
     "server": { "type": ["string", "null"] },
     "bytes_up": { "type": "integer", "minimum": 0 },
     "bytes_down": { "type": "integer", "minimum": 0 },
-    "last_error": { "type": ["string", "null"] }
+    "last_error": { "type": ["string", "null"] },
+    "legacy_fallback_hint": {
+      "type": ["string", "null"],
+      "description": "Populated when SwifWire dials exhausted and legacy_fallback_uri was configured"
+    }
   }
 }

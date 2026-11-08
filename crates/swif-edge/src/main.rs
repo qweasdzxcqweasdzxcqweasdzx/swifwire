@@ -8,7 +8,7 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use swif_crypto::StaticKeypair;
 use swif_mask::{
-    accept_tls, decode_pref_datagram, encode_pref_datagram, plausible_hello_len, read_pref,
+    accept_tls, decode_pref_datagram, encode_pref_datagram_slice, plausible_hello_len, read_pref,
     read_pref_timeout, serve_cover, write_pem, write_pref, CoverMode, LabTlsMaterial,
 };
 use swif_mux::Mux;
@@ -91,6 +91,7 @@ fn load_tls_material(args: &Args) -> Result<LabTlsMaterial> {
             cert_der: hex::decode(v["cert_hex"].as_str().context("cert_hex")?)?,
             key_der: hex::decode(v["key_hex"].as_str().context("key_hex")?)?,
             server_name: v["sni"].as_str().unwrap_or(&args.sni).to_string(),
+            hints: Default::default(),
         })
     } else {
         if !lab_mode() {
@@ -396,15 +397,15 @@ async fn run_quic(listen: SocketAddr, key: Arc<StaticKeypair>) -> Result<()> {
 async fn handle_quic_session(
     sock: Arc<UdpSocket>,
     peer: SocketAddr,
-    dcid: [u8; 8],
+    dcid: Vec<u8>,
     hello: Vec<u8>,
     key: Arc<StaticKeypair>,
 ) -> Result<()> {
     let (server_raw, keys) = server_respond_keys(&key, &hello, 0x07)?;
-    let pkt = encode_pref_datagram(&dcid, &server_raw);
+    let pkt = encode_pref_datagram_slice(&dcid, &server_raw);
     sock.send_to(&pkt, peer).await?;
 
-    let mut sess = SessionTransport::new_server(keys, Shaper::new(ShaperProfile::default()));
+    let mut sess = SessionTransport::new_server(keys, Shaper::new(ShaperProfile::desktop()));
     let mut mux = Mux::new_server();
     let mut buf = vec![0u8; 64 * 1024];
 
@@ -441,7 +442,7 @@ async fn handle_quic_session(
                         let mut rb = vec![0u8; 32 * 1024];
                         let rn = remote.read(&mut rb).await?;
                         let f = mux.data_frame(sid, &rb[..rn])?;
-                        let out = encode_pref_datagram(&dcid, &sess.seal_frame(&f)?);
+                        let out = encode_pref_datagram_slice(&dcid, &sess.seal_frame(&f)?);
                         sock.send_to(&out, peer).await?;
                         if rn == 0 {
                             return Ok(());

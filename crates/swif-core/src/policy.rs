@@ -39,6 +39,8 @@ pub struct DialPolicy {
     pub backoff_ms: u32,
     /// If false (default), never auto-switch to quic_lab.
     pub allow_quic_lab_fallback: bool,
+    /// Phase-1 dual-stack: opaque legacy share (not executed by SwifWire).
+    pub legacy_fallback_uri: Option<String>,
 }
 
 impl Default for DialPolicy {
@@ -50,6 +52,7 @@ impl Default for DialPolicy {
             backoff_ms: 0,
             allow_quic_lab_fallback: std::env::var("SWIF_ALLOW_QUIC_LAB").ok().as_deref()
                 == Some("1"),
+            legacy_fallback_uri: None,
         }
     }
 }
@@ -97,6 +100,21 @@ impl DialPolicy {
 
     pub fn current(&self) -> &MaskId {
         &self.preferred
+    }
+
+    /// After repeated timeouts, surface legacy URI for the host app (VPN UI dual-stack).
+    pub fn legacy_hint_if_exhausted(&self) -> Option<&str> {
+        if self.timeouts == 0 && self.backoff_ms > 0 {
+            // just exhausted a switch cycle
+        }
+        if self.backoff_ms >= 150 * self.switch_after {
+            return self.legacy_fallback_uri.as_deref();
+        }
+        None
+    }
+
+    pub fn set_legacy_fallback(&mut self, uri: Option<String>) {
+        self.legacy_fallback_uri = uri;
     }
 }
 

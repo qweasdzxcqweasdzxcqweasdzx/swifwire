@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "pack_id": "dev-2026-11-05",
-  "min_core": "0.1.0",
-  "issued_at": "2026-11-05T00:00:00Z",
+  "pack_id": "dev-2026-11-08",
+  "min_core": "0.2.0",
+  "issued_at": "2026-11-08T00:00:00Z",
   "profiles": [
     {
       "id": "tls13_stable",
@@ -16,13 +16,15 @@
           { "bytes": 1400, "weight": 2 }
         ],
         "idle_ms": 15000,
-        "jitter_ms": 40,
-        "max_pad": 800
+        "jitter_ms": 400,
+        "max_pad": 800,
+        "min_pad": 16
       },
       "templates": {
-        "note": "Replace with real ClientHello templates before prod; not a fingerprint copy of a third-party client.",
-        "client_hello_b64": null,
-        "grease": true
+        "client_hello_profile": "chrome_stable",
+        "grease": true,
+        "alpn": ["h2", "http/1.1"],
+        "note": "ALPN applied via rustls; full JA3/JA4 mimicry still open (WP2C)."
       },
       "cover": {
         "sni_pool_ref": "pool.stable.v1",
@@ -30,7 +32,7 @@
       }
     },
     {
-      "id": "quic_fast",
+      "id": "quic_lab",
       "underlay": "udp",
       "default_port": 443,
       "shaper": {
@@ -39,12 +41,32 @@
           { "bytes": 800, "weight": 2 }
         ],
         "idle_ms": 8000,
-        "jitter_ms": 20,
-        "max_pad": 400
+        "jitter_ms": 200,
+        "max_pad": 400,
+        "min_pad": 16
       },
       "templates": {
-        "note": "QUIC Initial cover templates TBD",
-        "quic_initial_b64": null
+        "note": "Thin greased UDP cover; not Chrome QUIC FP"
+      },
+      "cover": {
+        "sni_pool_ref": "pool.quic.v1",
+        "alpn": ["h3"]
+      }
+    },
+    {
+      "id": "quic_stable",
+      "underlay": "udp",
+      "default_port": 443,
+      "shaper": {
+        "length_hist": [{ "bytes": 1200, "weight": 1 }],
+        "idle_ms": 10000,
+        "jitter_ms": 300,
+        "max_pad": 400,
+        "min_pad": 16
+      },
+      "templates": {
+        "quic_initial_b64": null,
+        "note": "Scaffold only — runtime not ready until quinn path ships"
       },
       "cover": {
         "sni_pool_ref": "pool.quic.v1",

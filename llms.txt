@@ -85,8 +85,12 @@ Free every allocated char* with swif_string_free.
 ## Hardening status
 
 Read docs/HARDENING.md.
-Done: SwifHS v0, resume_fs, cover mirror, PEM, SWIF_LAB, tls_verify pin|webpki, shaper idle, DialPolicy (tls-sticky), smoke-probe-cover.
-Open: pack-driven ClientHello FP, quic_stable, legacy dual-stack.
+Done: SwifHS v0, resume_fs, cover mirror, PEM, SWIF_LAB, tls_verify pin|webpki, shaper idle, DialPolicy (tls-sticky), smoke-probe-cover, pack ALPN hints, quic_lab grease, quic_stable scaffold, legacy_fallback_uri.
+Open: full uTLS JA3/JA4, quinn quic_stable runtime, host-app legacy dialer.
+
+## Dual-stack (phase 1)
+
+Config field `legacy_fallback_uri` (opaque string). SwifWire does NOT dial it. On TLS dial exhaustion core errors with `legacy_fallback_hint=…` for the VPN UI to switch.
 
 ## Docs map (read in order for tasks)
 

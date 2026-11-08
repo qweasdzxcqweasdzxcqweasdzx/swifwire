@@ -32,6 +32,10 @@
           "enum": ["pin", "webpki"],
           "default": "pin",
           "description": "pin=lab DER pin; webpki=Mozilla roots (prod public CA)"
+        },
+        "legacy_fallback_uri": {
+          "type": "string",
+          "description": "Host-app dual-stack: opaque legacy share URI"
         }
       }
     }

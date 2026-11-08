@@ -41,5 +41,6 @@ Goal language: measurable cover / probe-resistance, swappable masks — **not** 
 |------|--------|
 | 0.2.x harden-1 | SwifHS v0 spec; resume_fs; cover mirror; PEM; SWIF_LAB |
 | 0.2.x harden-2 | webpki verify mode; shaper idle/min_pad; DialPolicy runtime; smoke-probe-cover |
+| 0.2.x harden-3 | pack ALPN/`chrome_stable` hints via rustls; quic_lab grease; `quic_stable` scaffold; `legacy_fallback_uri` |
 
-**Still open:** pack-driven JA3/JA4 templates; real QUIC mask; legacy dual-stack.
+**Still open:** full JA3/JA4 uTLS; quinn-backed `quic_stable` runtime; host-app execution of legacy URI.

@@ -95,6 +95,7 @@ fn load_tls_material(path: &str) -> Result<LabTlsMaterial, CoreError> {
             .as_str()
             .unwrap_or("cover.local")
             .to_string(),
+        hints: Default::default(),
     })
 }
 
@@ -141,6 +142,7 @@ async fn run_socks_loop(outbound: Outbound, stop: Arc<AtomicBool>) -> Result<(),
         if let Some(m) = crate::policy::MaskId::parse(&mask) {
             p.preferred = m;
         }
+        p.set_legacy_fallback(outbound.settings.legacy_fallback_uri.clone());
     }
 
     let listener = TcpListener::bind(socks)
@@ -226,12 +228,20 @@ async fn handle_one(
                     }
                     Err(e) => {
                         warn!("tls dial attempt {attempt}/3 failed: {e}");
-                        let backoff = {
+                        let (backoff, legacy) = {
                             let mut p = policy.lock().await;
                             let (_next, ms) = p.on_handshake_timeout();
-                            ms
+                            (ms, p.legacy_fallback_uri.clone())
                         };
                         last = Some(e);
+                        if attempt == 3 {
+                            if let Some(uri) = legacy {
+                                warn!("swif dials exhausted; host app may use legacy_fallback_uri");
+                                anyhow::bail!(
+                                    "swif tls dial failed after retries; legacy_fallback_hint={uri}"
+                                );
+                            }
+                        }
                         tokio::time::sleep(Duration::from_millis(backoff.max(150) as u64)).await;
                     }
                 }

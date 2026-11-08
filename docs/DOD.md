@@ -19,9 +19,11 @@ See [HARDENING.md](HARDENING.md). Neutral goal: swappable mask + measurable cove
 - [x] Shaper idle Ping + min_pad + desktop/mobile profiles
 - [x] DialPolicy in core runtime (no auto quic_lab unless `SWIF_ALLOW_QUIC_LAB=1`)
 - [x] `scripts/smoke-probe-cover.ps1`
-- [ ] Pack-driven ClientHello FP (uTLS / template order) — WP2C open
-- [ ] Real `quic_stable` (not thin lab) — WP3 open
-- [ ] Dual-stack legacy outbound hook — WP5/6 open
+- [x] Pack-driven ALPN + named hello profile (`TlsPackHints`) — full JA3/uTLS still open
+- [x] `quic_lab` grease DCID/version; `quic_stable` scaffold (`is_runtime_ready=false`)
+- [x] `legacy_fallback_uri` config + dial-exhausted hint (host app executes legacy)
+- [ ] Full browser ClientHello FP (uTLS-class) — WP2C remaining
+- [ ] Quinn/pack `quic_stable` runtime — WP3 remaining
 - [ ] cargo test + smoke-all green on release branch
 
 ## Tag (when harden DoD closed)

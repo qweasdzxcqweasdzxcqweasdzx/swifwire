@@ -154,6 +154,15 @@ $env:SWIF_ALLOW_NULL="1"   # только если тестируете null
 
 Ожидание: HTTP 200 через SOCKS core.
 
+## 10b. Dual-stack (phase 1)
+
+В конфиге можно указать opaque `legacy_fallback_uri` (например share другой транспорт).  
+SwifWire **не** исполняет его: при исчерпании dial retries ошибка содержит `legacy_fallback_hint=…` — UI переключает outbound сам.
+
+Pack: `templates.client_hello_profile` (`chrome_stable` / `firefox_stable` / `rustls_default`) + `alpn` применяются через rustls ALPN. Полный JA3/uTLS ещё не закрыт.
+
+`quic_stable` в pack — scaffold; runtime ready = false. Lab UDP = `quic_lab` / `quic_fast` + `SWIF_ALLOW_QUIC_LAB`.
+
 ## 11. Частые ошибки
 
 | Симптом | Причина |

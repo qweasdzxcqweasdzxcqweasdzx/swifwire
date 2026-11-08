@@ -2,9 +2,10 @@
 
 ## Unreleased
 
-- **Harden-2:** `tls_verify` pin/webpki; shaper idle Ping + min_pad + variance tests; DialPolicy wired (no quic_lab fallback by default); `smoke-probe-cover.ps1`; EDGE_RUNBOOK prod cover flags
-- **Harden-1:** `docs/HARDENING.md`; SwifHS v0; `ResumeMode::{Fast,Fs}`; cover mirror; PEM; `SWIF_LAB`; `quic_lab` alias
-- Docs for client/server agents; schemas `core-config` / `core-status` / `tls-material`
+- **Harden-3:** pack `TlsPackHints` (ALPN + chrome/firefox/rustls profile ids); greased `quic_lab`; `quic_stable` scaffold; `legacy_fallback_uri` dual-stack hook
+- **Harden-2:** `tls_verify` pin/webpki; shaper idle; DialPolicy; `smoke-probe-cover.ps1`
+- **Harden-1:** SwifHS v0; resume_fs; cover mirror; PEM; `SWIF_LAB`
+- Docs/schemas for client + server agents
 
 ## 0.2.0
 

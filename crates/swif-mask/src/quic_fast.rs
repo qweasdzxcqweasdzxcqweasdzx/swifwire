@@ -1,46 +1,62 @@
-//! `quic_fast` / **`quic_lab`** — thin UDP long-header wrapper (lab only; not Chrome FP).
-//! WP3 will introduce pack-driven `quic_stable`; do not use as prod DialPolicy default.
+//! `quic_fast` / **`quic_lab`** — thin UDP long-header cover (lab only).
+//!
+//! WP3: grease DCID/version randomization. Full `quic_stable` (quinn/pack Initial)
+//! is a separate profile — see `quic_stable.rs`.
 
 use std::net::SocketAddr;
 
 use rand::RngCore;
 use tokio::net::UdpSocket;
 
-/// Fake QUIC long-header version (lab).
+/// Legacy fixed version (still accepted on unwrap for old peers).
 pub const COVER_VERSION: u32 = 0x0000_0001;
 pub const DCID_LEN: usize = 8;
 
-/// Build one UDP datagram: long-header-ish cover + payload.
-pub fn wrap_payload(dcid: &[u8; DCID_LEN], payload: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(1 + 4 + 1 + DCID_LEN + 1 + payload.len());
-    out.push(0xC0); // long header form + fixed bits
-    out.extend_from_slice(&COVER_VERSION.to_be_bytes());
-    out.push(DCID_LEN as u8);
-    out.extend_from_slice(dcid);
+fn grease_version() -> u32 {
+    // Mix fixed lab version with grease-like values (low entropy, not Chrome FP).
+    const CANDIDATES: [u32; 5] = [
+        COVER_VERSION,
+        0x6b33_1efd, // classic QUIC grease pattern-ish
+        0x0000_0001,
+        0xface_b001,
+        0x0a0a_0a0a,
+    ];
+    let i = (rand::random::<u8>() as usize) % CANDIDATES.len();
+    CANDIDATES[i]
+}
+
+/// Build one UDP datagram: long-header-ish cover + payload (variable DCID 4..=16).
+pub fn wrap_payload(dcid: &[u8], payload: &[u8]) -> Vec<u8> {
+    let dcid_len = dcid.len().clamp(4, 16);
+    let mut out = Vec::with_capacity(1 + 4 + 1 + dcid_len + 1 + payload.len());
+    let form = 0xC0u8 | (rand::random::<u8>() & 0x0F); // long header + grease low bits
+    out.push(form);
+    out.extend_from_slice(&grease_version().to_be_bytes());
+    out.push(dcid_len as u8);
+    out.extend_from_slice(&dcid[..dcid_len]);
     out.push(0); // scid len = 0
     out.extend_from_slice(payload);
     out
 }
 
-/// Parse cover → (dcid, payload). Returns None if not our cover shape.
-pub fn unwrap_payload(pkt: &[u8]) -> Option<([u8; DCID_LEN], &[u8])> {
-    if pkt.len() < 1 + 4 + 1 + DCID_LEN + 1 {
+/// Parse cover → (dcid, payload). Accepts variable DCID and any long-header version.
+pub fn unwrap_payload(pkt: &[u8]) -> Option<(Vec<u8>, &[u8])> {
+    if pkt.len() < 1 + 4 + 1 + 4 + 1 {
         return None;
     }
-    if pkt[0] & 0xC0 != 0xC0 {
+    if pkt[0] & 0x80 == 0 {
+        return None; // require long-header form bit
+    }
+    let dcid_len = pkt[5] as usize;
+    if !(4..=20).contains(&dcid_len) {
         return None;
     }
-    let ver = u32::from_be_bytes(pkt[1..5].try_into().ok()?);
-    if ver != COVER_VERSION {
+    if pkt.len() < 6 + dcid_len + 1 {
         return None;
     }
-    if pkt[5] as usize != DCID_LEN {
-        return None;
-    }
-    let mut dcid = [0u8; DCID_LEN];
-    dcid.copy_from_slice(&pkt[6..6 + DCID_LEN]);
-    let scid_len = pkt[6 + DCID_LEN] as usize;
-    let start = 6 + DCID_LEN + 1 + scid_len;
+    let dcid = pkt[6..6 + dcid_len].to_vec();
+    let scid_len = pkt[6 + dcid_len] as usize;
+    let start = 6 + dcid_len + 1 + scid_len;
     if start > pkt.len() {
         return None;
     }
@@ -53,15 +69,26 @@ pub fn random_dcid() -> [u8; DCID_LEN] {
     id
 }
 
+pub fn random_dcid_var() -> Vec<u8> {
+    let n = 4 + (rand::random::<usize>() % 13); // 4..16
+    let mut id = vec![0u8; n];
+    rand::thread_rng().fill_bytes(&mut id);
+    id
+}
+
 /// Length-prefixed message over one UDP datagram (MVP: one pref msg = one datagram).
 pub fn encode_pref_datagram(dcid: &[u8; DCID_LEN], msg: &[u8]) -> Vec<u8> {
+    encode_pref_datagram_slice(dcid, msg)
+}
+
+pub fn encode_pref_datagram_slice(dcid: &[u8], msg: &[u8]) -> Vec<u8> {
     let mut inner = Vec::with_capacity(4 + msg.len());
     inner.extend_from_slice(&(msg.len() as u32).to_be_bytes());
     inner.extend_from_slice(msg);
     wrap_payload(dcid, &inner)
 }
 
-pub fn decode_pref_datagram(pkt: &[u8]) -> Option<([u8; DCID_LEN], Vec<u8>)> {
+pub fn decode_pref_datagram(pkt: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
     let (dcid, inner) = unwrap_payload(pkt)?;
     if inner.len() < 4 {
         return None;
@@ -76,7 +103,7 @@ pub fn decode_pref_datagram(pkt: &[u8]) -> Option<([u8; DCID_LEN], Vec<u8>)> {
 pub struct QuicFastClient {
     pub sock: UdpSocket,
     pub peer: SocketAddr,
-    pub dcid: [u8; DCID_LEN],
+    pub dcid: Vec<u8>,
 }
 
 impl QuicFastClient {
@@ -86,12 +113,12 @@ impl QuicFastClient {
         Ok(Self {
             sock,
             peer,
-            dcid: random_dcid(),
+            dcid: random_dcid_var(),
         })
     }
 
     pub async fn send_pref(&self, msg: &[u8]) -> std::io::Result<()> {
-        let pkt = encode_pref_datagram(&self.dcid, msg);
+        let pkt = encode_pref_datagram_slice(&self.dcid, msg);
         self.sock.send(&pkt).await?;
         Ok(())
     }
@@ -111,10 +138,19 @@ mod tests {
 
     #[test]
     fn wrap_unwrap_roundtrip() {
-        let id = random_dcid();
-        let pkt = encode_pref_datagram(&id, b"hello-swif");
+        let id = random_dcid_var();
+        let pkt = encode_pref_datagram_slice(&id, b"hello-swif");
         let (id2, msg) = decode_pref_datagram(&pkt).unwrap();
         assert_eq!(id, id2);
         assert_eq!(msg, b"hello-swif");
+    }
+
+    #[test]
+    fn fixed_dcid_still_works() {
+        let id = random_dcid();
+        let pkt = encode_pref_datagram(&id, b"x");
+        let (id2, msg) = decode_pref_datagram(&pkt).unwrap();
+        assert_eq!(&id[..], &id2[..]);
+        assert_eq!(msg, b"x");
     }
 }

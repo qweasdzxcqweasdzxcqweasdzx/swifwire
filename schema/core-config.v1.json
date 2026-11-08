@@ -35,6 +35,10 @@
       "enum": ["pin", "webpki"],
       "default": "pin"
     },
+    "legacy_fallback_uri": {
+      "type": "string",
+      "description": "Opaque legacy outbound URI for host-app dual-stack after SwifWire dials fail (not executed by core)"
+    },
     "pack_trust_pub_hex": { "type": "string" },
     "start_runtime": {
       "type": "boolean",

@@ -65,6 +65,7 @@ fn load_tls(path: &PathBuf) -> Result<LabTlsMaterial> {
         cert_der: hex::decode(v["cert_hex"].as_str().context("cert_hex")?)?,
         key_der: hex::decode(v["key_hex"].as_str().context("key_hex")?)?,
         server_name: v["sni"].as_str().unwrap_or("cover.local").to_string(),
+        hints: Default::default(),
     })
 }
 

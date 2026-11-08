@@ -25,6 +25,9 @@ pub struct OutboundSettings {
     /// `pin` (lab default) | `webpki` (prod public CA).
     #[serde(default = "default_tls_verify")]
     pub tls_verify: String,
+    /// Phase-1 dual-stack: opaque legacy outbound URI (vless://… etc.) — not parsed by SwifWire.
+    #[serde(default)]
+    pub legacy_fallback_uri: Option<String>,
 }
 
 fn default_tls_verify() -> String {
@@ -180,6 +183,7 @@ impl Outbound {
                 pack_trust_pub_hex: None,
                 tls_material_path: None,
                 tls_verify: default_tls_verify(),
+                legacy_fallback_uri: None,
             },
         })
     }
@@ -215,6 +219,7 @@ impl Inbound {
                 pack_trust_pub_hex: None,
                 tls_material_path: None,
                 tls_verify: default_tls_verify(),
+                legacy_fallback_uri: None,
             },
         };
         ShareLink {
@@ -278,6 +283,7 @@ mod tests {
                 pack_trust_pub_hex: None,
                 tls_material_path: None,
                 tls_verify: default_tls_verify(),
+                legacy_fallback_uri: None,
             },
         };
         let uri = o.to_uri();
