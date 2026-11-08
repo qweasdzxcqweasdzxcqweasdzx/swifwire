@@ -163,7 +163,7 @@ fn run(args: Args) -> anyhow::Result<()> {
             println!("ja3_string={ja3}");
             println!("ja3_sha256={hash}");
             println!("ch_record_hex={}", hex::encode(&rec));
-            println!("note=craft_encoder_only; dial_tls still rustls (extension_order=false)");
+            println!("note=craft_dial_default_for_chrome_firefox; force_rustls=SWIF_TLS_RUSTLS_DIAL=1");
         }
         Cmd::Sqi1 {
             version,

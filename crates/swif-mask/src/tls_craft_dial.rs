@@ -37,19 +37,12 @@ pub fn craft_dial_wired() -> bool {
     true
 }
 
-/// True only when craft dial is **selected** for live traffic (opt-in until app-key e2e is green).
+/// True when live dial uses pack-ordered ClientHello for this profile.
 pub fn tls_extension_order_ready_for(profile: ClientHelloProfile) -> bool {
-    should_craft_dial_env()
-        && matches!(
-            profile,
-            ClientHelloProfile::ChromeStable | ClientHelloProfile::FirefoxStable
-        )
-}
-
-fn should_craft_dial_env() -> bool {
-    // Opt-in: HS against rustls works; app-traffic AEAD parity still being hardened.
-    // Default remains rustls dial; set SWIF_TLS_CH_CRAFT=1 to exercise craft path.
-    std::env::var("SWIF_TLS_CH_CRAFT").ok().as_deref() == Some("1")
+    matches!(
+        profile,
+        ClientHelloProfile::ChromeStable | ClientHelloProfile::FirefoxStable
+    ) && std::env::var("SWIF_TLS_RUSTLS_DIAL").ok().as_deref() != Some("1")
 }
 
 pub fn fingerprint_budget_craft() -> FingerprintBudget {
@@ -64,15 +57,15 @@ pub fn fingerprint_budget_craft() -> FingerprintBudget {
 }
 
 /// Whether craft dial should be used for these pack hints.
+/// Default ON for chrome/firefox. Force rustls: `SWIF_TLS_RUSTLS_DIAL=1`.
 pub fn should_craft_dial(hints: &crate::tls_profile::TlsPackHints) -> bool {
     if std::env::var("SWIF_TLS_RUSTLS_DIAL").ok().as_deref() == Some("1") {
         return false;
     }
-    should_craft_dial_env()
-        && matches!(
-            hints.profile,
-            ClientHelloProfile::ChromeStable | ClientHelloProfile::FirefoxStable
-        )
+    matches!(
+        hints.profile,
+        ClientHelloProfile::ChromeStable | ClientHelloProfile::FirefoxStable
+    )
 }
 
 pub struct CraftTlsStream {
@@ -123,9 +116,12 @@ pub async fn dial_tls_craft(
     let pk = PublicKey::from(&sk);
     let mut random = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut random);
+    // Non-empty session_id → middlebox compat (CCS); rustls accepts either.
+    let mut sid = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut sid);
     let live = LiveClientHelloParams {
         random,
-        session_id: Vec::new(),
+        session_id: sid.to_vec(),
         key_share_x25519: *pk.as_bytes(),
         omit_experimental: true,
     };
@@ -208,17 +204,20 @@ pub async fn dial_tls_craft(
         return Err(err("pin mismatch"));
     }
 
-    // Client Finished
+    // App traffic secrets: Derive-Secret(..., ClientHello...server Finished)
+    // — client's own Finished is NOT in the transcript (RFC 8446 §7.1).
+    let app = schedule_app(&hs.master, &tr, aead)?;
+
+    // Client Finished (MAC over transcript through server Finished)
     let cvd = finished_mac(&hs.c_traffic, &tr)?;
     let mut cf = vec![0x14, 0, 0, cvd.len() as u8];
     cf.extend_from_slice(&cvd);
-    let mut cf_plain = cf.clone();
+    let mut cf_plain = cf;
     cf_plain.push(0x16);
+    // Middlebox CCS (compat with non-empty session_id).
+    tcp.write_all(&[0x14, 0x03, 0x03, 0x00, 0x01, 0x01]).await?;
     let cf_rec = seal_record(aead, &hs.c_key16, &hs.c_key32, &hs.c_iv, 0, &cf_plain)?;
     tcp.write_all(&cf_rec).await?;
-    // App traffic secrets include ClientHello..ClientFinished (RFC 8446).
-    tr.update(&cf);
-    let app = schedule_app(&hs.master, &tr, aead)?;
 
     Ok(CraftTlsStream {
         tcp,

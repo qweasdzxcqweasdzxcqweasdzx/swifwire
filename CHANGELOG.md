@@ -6,8 +6,8 @@
 
 Toward mass-client DPI cover (dual-stack still required):
 
-- Crafted TLS ClientHello encoder (`tls_ch_wire`) + **live craft dial** module (`tls_craft_dial`, opt-in `SWIF_TLS_CH_CRAFT=1`); rustls fallback; app-AEAD e2e still open
-- Status: `craft_dial_wired=true`, `tls_extension_order_ready=false` until craft is default-green
+- Crafted TLS ClientHello + **live craft dial default** (`tls_craft_dial`); app secrets use CH…server Finished (RFC); rustls fallback / `SWIF_TLS_RUSTLS_DIAL=1`
+- Status: `tls_extension_order_ready=true` for chrome/firefox pack profiles
 - Edge `--ticket-master` / `SWIF_TICKET_MASTER_HEX` (prod separate from static pub)
 - DialPolicy: quic_stable only via `SWIF_ALLOW_QUIC_STABLE` (no silent SWIF_LAB switch)
 - Session negative/stress tests (`negative_hs`)

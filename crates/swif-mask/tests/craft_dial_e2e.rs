@@ -12,9 +12,7 @@ use swif_mask::{
 };
 
 #[tokio::test]
-#[ignore = "craft HS ok; app-traffic AEAD vs rustls still failing — enable with SWIF_TLS_CH_CRAFT + fix keys"]
 async fn craft_dial_handshake_and_echo() {
-    std::env::set_var("SWIF_TLS_CH_CRAFT", "1");
     assert!(craft_dial_wired());
     assert!(tls_extension_order_ready_for(ClientHelloProfile::ChromeStable));
 

@@ -55,9 +55,9 @@ Gate: `prod-gate.ps1` + `swif-pack ja3` + `scripts/sbom.ps1`.
 
 ### A. TLS / JA3
 - [x] Pack-driven ClientHello **wire encoder** (`tls_ch_wire`) + JA3 lab digests
-- [x] Live craft dial **module** + opt-in (`SWIF_TLS_CH_CRAFT=1`) + rustls fallback
-- [ ] App-traffic AEAD parity vs rustls edge → default craft + `tls_extension_order_ready=true`
-- [ ] JA4_a/b against browser capture corpus
+- [x] Live craft dial default for chrome/firefox + rustls fallback (`SWIF_TLS_RUSTLS_DIAL=1`)
+- [x] App-traffic AEAD parity vs rustls (`craft_dial_e2e`) → `tls_extension_order_ready=true`
+- [ ] JA4_a/b against browser capture corpus (0.5 stretch)
 
 ### B. QUIC
 - [x] Honest `forge_ready=false` + opaque inject scaffold

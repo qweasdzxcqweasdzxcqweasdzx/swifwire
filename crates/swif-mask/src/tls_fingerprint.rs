@@ -20,7 +20,7 @@ pub struct FingerprintBudget {
     pub signature_schemes: bool,
     pub alpn: bool,
     pub grease_flag: bool,
-    /// Fixed browser extension order — **false** on rustls.
+    /// Fixed browser extension order — true on craft dial (chrome/firefox).
     pub extension_order: bool,
 }
 
@@ -32,6 +32,15 @@ impl FingerprintBudget {
         alpn: true,
         grease_flag: true,
         extension_order: false,
+    };
+
+    pub const CRAFT_FULL: Self = Self {
+        cipher_suites: true,
+        kx_groups: true,
+        signature_schemes: true,
+        alpn: true,
+        grease_flag: true,
+        extension_order: true,
     };
 }
 
@@ -65,13 +74,21 @@ pub fn intended_extension_order(profile: ClientHelloProfile) -> &'static [u16] {
 }
 
 pub fn fingerprint_status_message() -> &'static str {
-    "TLS FP: suite/kx/sig/ALPN via CryptoProvider; extension order still rustls-randomized (craftls 0.22 incompatible with rustls 0.23/quinn)"
+    if crate::tls_craft_dial::should_craft_dial(&TlsPackHints::default()) {
+        "TLS FP: craft dial — pack-ordered ClientHello (suites/ALPN/GREASE/ext order)"
+    } else {
+        "TLS FP: rustls dial — suite/kx/sig/ALPN; extension order randomized"
+    }
 }
 
 /// Machine-readable ClientHello *intent* for pack validation / LLM agents.
-/// This is **not** a captured wire ClientHello.
 pub fn client_hello_intent(hints: &TlsPackHints) -> Value {
-    let budget = FingerprintBudget::RUSTLS_PARTIAL;
+    let craft = crate::tls_craft_dial::should_craft_dial(hints);
+    let budget = if craft {
+        FingerprintBudget::CRAFT_FULL
+    } else {
+        FingerprintBudget::RUSTLS_PARTIAL
+    };
     json!({
         "profile": hints.profile.as_str(),
         "alpn": hints.alpn,
@@ -88,7 +105,8 @@ pub fn client_hello_intent(hints: &TlsPackHints) -> Value {
             "extension_order": budget.extension_order,
         },
         "craft_encoder": true,
-        "craft_dial_wired": false,
+        "craft_dial_wired": crate::tls_craft_dial::craft_dial_wired(),
+        "craft_dial_default": craft,
         "status": fingerprint_status_message(),
         "craft_status": crate::tls_ch_wire::craft_status_message(),
     })
@@ -118,6 +136,7 @@ mod tests {
     #[test]
     fn chrome_has_order() {
         assert!(!intended_extension_order(ClientHelloProfile::ChromeStable).is_empty());
+        assert!(FingerprintBudget::CRAFT_FULL.extension_order);
         assert!(!FingerprintBudget::RUSTLS_PARTIAL.extension_order);
     }
 
@@ -126,7 +145,8 @@ mod tests {
         let hints = TlsPackHints::default();
         let v = client_hello_intent(&hints);
         assert_eq!(v["profile"], "chrome_stable");
-        assert_eq!(v["budget"]["extension_order"], false);
+        assert_eq!(v["budget"]["extension_order"], true);
         assert!(v["intended_extension_order_iana"].as_array().unwrap().len() > 5);
+        assert_eq!(v["craft_dial_default"], true);
     }
 }

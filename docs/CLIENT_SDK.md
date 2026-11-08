@@ -163,9 +163,9 @@ Pack: `templates.client_hello_profile` (`chrome_stable` / `firefox_stable` / `ru
 
 `quic_stable` — quinn dial/accept + pref bi-stream; lab gate `SWIF_ALLOW_QUIC_STABLE=1` / `SWIF_LAB=1`. Pack `templates.quic_initial` / SQI1 b64 drives grease+DCID policy (lab cover); forged Quinn Initial still open. Thin UDP lab = `quic_lab` / `quic_fast` + `SWIF_ALLOW_QUIC_LAB`.
 
-TLS FP: suite/kx/sig/ALPN via CryptoProvider. Live dial defaults to rustls (randomized ext order).  
-Craft path: `SWIF_TLS_CH_CRAFT=1` → `tls_craft_dial` sends pack-ordered ClientHello (fallback to rustls on failure).  
-`tls_extension_order_ready=true` only when craft is selected; app-AEAD e2e still residual. Lab JA3: `swif-pack ja3`.
+TLS FP: **craft dial default** for `chrome_stable` / `firefox_stable` — pack-ordered ClientHello (suites/ALPN/GREASE/ext order).  
+Fallback: on craft failure → rustls; force rustls: `SWIF_TLS_RUSTLS_DIAL=1`.  
+Status: `tls_extension_order_ready=true`. Lab JA3 dump: `swif-pack ja3`.
 
 Cover cert ops: issue a real cert for your SNI (Let's Encrypt / CDN), point edge `--cover` at origin that serves the same hostname content, client `tls_verify=webpki`.
 

@@ -6,7 +6,7 @@ Neutral goal: measurable cover parity, fast mask-pack swap, dual-stack migration
 
 | # | Claim / need | Code (file:line) | 0.3.0 state | Residual | Target WP |
 |---|--------------|------------------|-------------|----------|-----------|
-| R1 | Chrome-like ClientHello extension order (JA3/JA4) | `tls_ch_wire` + `tls_craft_dial` (opt-in `SWIF_TLS_CH_CRAFT`); rustls fallback | HS works; app AEAD e2e open | Default dial still rustls; `extension_order_ready=false` | 0.5 app-keys |
+| R1 | Chrome-like ClientHello extension order (JA3/JA4) | `tls_craft_dial` default; `craft_dial_e2e` green; status ready=true | Done for chrome/firefox | JA4 capture corpus; full browser parity | 0.5 JA4 |
 | R2 | Quinn forged Initial | `quic_initial.rs` SQI1; `quic_stable.rs` quinn dial | Grease/DCID policy only | No byte-perfect Initial inject into quinn | WP4 residual; 0.5 |
 | R3 | Host **executes** legacy URI | `swifwire.h:36` alloc; `lib.rs:220` getter; status hint | Hint only | No reference host dialer | WP5 |
 | R4 | Dual-stack beside xray | docs only; edge sidecar | Docs thin | No systemd/panel contract pack | WP7 |
