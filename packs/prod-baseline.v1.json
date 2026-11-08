@@ -1,0 +1,130 @@
+{
+  "flags": {
+    "early_control": true,
+    "legacy_fallback": true
+  },
+  "format": 1,
+  "issued_at": "2026-11-09T00:00:00Z",
+  "min_core": "0.3.0",
+  "pack_id": "prod-baseline-0.3.0",
+  "profiles": [
+    {
+      "cover": {
+        "alpn": [
+          "h2",
+          "http/1.1"
+        ],
+        "sni_pool_ref": "pool.stable.v1"
+      },
+      "default_port": 443,
+      "id": "tls13_stable",
+      "shaper": {
+        "idle_ms": 15000,
+        "jitter_ms": 400,
+        "length_hist": [
+          {
+            "bytes": 64,
+            "weight": 1
+          },
+          {
+            "bytes": 512,
+            "weight": 3
+          },
+          {
+            "bytes": 1200,
+            "weight": 5
+          },
+          {
+            "bytes": 1400,
+            "weight": 2
+          }
+        ],
+        "max_pad": 800,
+        "min_pad": 16
+      },
+      "templates": {
+        "alpn": [
+          "h2",
+          "http/1.1"
+        ],
+        "client_hello_profile": "chrome_stable",
+        "grease": true,
+        "note": "ALPN applied via rustls; full JA3/JA4 mimicry still open (WP2C)."
+      },
+      "underlay": "tcp"
+    },
+    {
+      "cover": {
+        "alpn": [
+          "h3"
+        ],
+        "sni_pool_ref": "pool.quic.v1"
+      },
+      "default_port": 443,
+      "id": "quic_lab",
+      "shaper": {
+        "idle_ms": 8000,
+        "jitter_ms": 200,
+        "length_hist": [
+          {
+            "bytes": 1200,
+            "weight": 8
+          },
+          {
+            "bytes": 800,
+            "weight": 2
+          }
+        ],
+        "max_pad": 400,
+        "min_pad": 16
+      },
+      "templates": {
+        "note": "Thin greased UDP cover; not Chrome QUIC FP"
+      },
+      "underlay": "udp"
+    },
+    {
+      "cover": {
+        "alpn": [
+          "h3"
+        ],
+        "sni_pool_ref": "pool.quic.v1"
+      },
+      "default_port": 443,
+      "id": "quic_stable",
+      "shaper": {
+        "idle_ms": 10000,
+        "jitter_ms": 300,
+        "length_hist": [
+          {
+            "bytes": 1200,
+            "weight": 1
+          }
+        ],
+        "max_pad": 400,
+        "min_pad": 16
+      },
+      "templates": {
+        "note": "quic_stable quinn lab ready; SQI1 b64 optional for opaque Initial capture",
+        "quic_initial": {
+          "dcid_len": 8,
+          "grease_versions": [
+            1,
+            1798528765,
+            4207865857
+          ],
+          "pad_hint": 0,
+          "scid_len": 0,
+          "version": 1
+        },
+        "quic_initial_b64": null
+      },
+      "underlay": "udp"
+    }
+  ],
+  "signature": {
+    "alg": "ed25519",
+    "key_id": "prod-baseline",
+    "sig_b64": "Ct0K4PeywrT7aoX3ZLdjdB+Qxkk7LgQ4XKNg1aytAJ5KZHVC8smIixJaCu52VEcGTr2T1zr/TzVmDyCagbgBDA=="
+  }
+}

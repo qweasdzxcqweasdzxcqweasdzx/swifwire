@@ -2,14 +2,18 @@
 
 ## Unreleased
 
-- **Proto-7:** pack `quic_initial`/SQI1 templates; lab cover grease/SCID/pad from pack; core `RuntimeHints` (tls+quic); `client_hello_intent` dump
-- **Proto-6:** quinn `quic_stable` dial/accept + SOCKS lab path; DialPolicy prefers quic_stable over quic_lab; TLS sig-scheme preference + fingerprint budget docs; `smoke-quic-stable.ps1`
-- **Proto-5:** edge ticket replay window; REKEY ack-before-advance (edge + core pump); pack hints hot-restart; `quic_stable` PrefStreamBuf framing bridge; WIRE §4.5 ordering
-- **Proto-4:** rustls CryptoProvider cipher/kx profiles; `derive_rekey_keys` + session epoch/key_phase; CONTROL_EARLY; `TicketReplayWindow`; WIRE §3.1/§4.5–4.7
-- **Harden-3:** pack `TlsPackHints`; greased `quic_lab`; `quic_stable` scaffold; `legacy_fallback_uri`
-- **Harden-2:** `tls_verify` pin/webpki; shaper idle; DialPolicy; `smoke-probe-cover.ps1`
-- **Harden-1:** SwifHS v0; resume_fs; cover mirror; PEM; `SWIF_LAB`
-- Docs/schemas for client + server agents
+## 0.3.0
+
+Production **test gate** for protocol + core (self-host commercial):
+
+- **Prod gate:** `scripts/prod-gate.ps1` (workspace tests + smoke-all); release-win runs it by default
+- **`swif-pack`:** gen-key / sign / verify / intent / sqi1
+- **Core status:** `prod_gate`, `quic_stable_runtime_ready`, `tls_extension_order_ready=false`, legacy hint
+- **C ABI:** `swif_core_legacy_fallback_alloc` (ABI version still 1)
+- **Deploy:** `client.prod.example.json`, `edge.prod.example.md`
+- Proto-4…7 + harden-1…3 folded in (SwifHS, REKEY, replay, quinn `quic_stable`, SQI1, pack hints)
+
+**Residual (documented):** full JA3 extension order; forged Quinn Initial; host executes legacy URI.
 
 ## 0.2.0
 

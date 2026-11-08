@@ -41,6 +41,9 @@ pub struct CoreConfig {
     pub pack_trust_pub_hex: Option<String>,
     #[serde(default)]
     pub tls_material_path: Option<String>,
+    /// `pin` (lab) or `webpki` (prod).
+    #[serde(default)]
+    pub tls_verify: Option<String>,
     #[serde(default)]
     pub legacy_fallback_uri: Option<String>,
     /// If true (default), start local SOCKS → edge tunnel.
@@ -99,7 +102,10 @@ impl CoreConfig {
                 pack_url: None,
                 pack_trust_pub_hex: self.pack_trust_pub_hex.clone(),
                 tls_material_path: self.tls_material_path.clone(),
-                tls_verify: "pin".into(),
+                tls_verify: self
+                    .tls_verify
+                    .clone()
+                    .unwrap_or_else(|| "pin".into()),
                 legacy_fallback_uri: self.legacy_fallback_uri.clone(),
             },
         })
@@ -117,9 +123,18 @@ pub struct CoreStatus {
     pub bytes_up: u64,
     pub bytes_down: u64,
     pub last_error: Option<String>,
-    /// Set when SwifWire dials exhausted and phase-1 legacy URI is configured.
+    /// Configured legacy URI (host app dials when SwifWire exhausts).
     #[serde(default)]
     pub legacy_fallback_hint: Option<String>,
+    /// Honest FP: extension order not controlled by rustls.
+    #[serde(default)]
+    pub tls_extension_order_ready: bool,
+    /// Quinn `quic_stable` dial/accept compiled in.
+    #[serde(default)]
+    pub quic_stable_runtime_ready: bool,
+    /// Core/protocol commercial test gate version string.
+    #[serde(default)]
+    pub prod_gate: String,
 }
 
 pub struct CoreHandle {
@@ -172,6 +187,7 @@ pub fn core_start(config_json: &str) -> Result<CoreHandle, CoreError> {
     } else {
         "started".into()
     };
+    let legacy = outbound.settings.legacy_fallback_uri.clone();
     Ok(CoreHandle {
         inner: Mutex::new(CoreInner {
             config,
@@ -191,10 +207,26 @@ pub fn core_start(config_json: &str) -> Result<CoreHandle, CoreError> {
                 bytes_up: 0,
                 bytes_down: 0,
                 last_error: None,
-                legacy_fallback_hint: None,
+                legacy_fallback_hint: legacy,
+                tls_extension_order_ready: false,
+                quic_stable_runtime_ready: swif_mask::quic_stable_ready(),
+                prod_gate: "0.3.0-prod".into(),
             },
         }),
     })
+}
+
+/// Host dual-stack: opaque legacy share URI from config (not executed by core).
+pub fn core_legacy_fallback_uri(handle: &CoreHandle) -> Result<Option<String>, CoreError> {
+    let g = handle
+        .inner
+        .lock()
+        .map_err(|_| CoreError::Msg("lock".into()))?;
+    Ok(g.outbound
+        .settings
+        .legacy_fallback_uri
+        .clone()
+        .or_else(|| g.status.legacy_fallback_hint.clone()))
 }
 
 pub fn core_stop(handle: CoreHandle) {
@@ -401,6 +433,27 @@ mod tests {
         let h = core_start(&cfg.to_string()).unwrap();
         core_apply_mask_pack(&h, &bytes).unwrap();
         assert!(core_status(&h).unwrap().contains("smoke"));
+        core_stop(h);
+    }
+
+    #[test]
+    fn legacy_uri_exposed() {
+        let cfg = serde_json::json!({
+            "server_addr": "1.2.3.4:443",
+            "server_static_pub_hex": "ab".repeat(32),
+            "legacy_fallback_uri": "vless://example",
+            "start_runtime": false
+        });
+        let h = core_start(&cfg.to_string()).unwrap();
+        assert_eq!(
+            core_legacy_fallback_uri(&h).unwrap().as_deref(),
+            Some("vless://example")
+        );
+        let st: CoreStatus = serde_json::from_str(&core_status(&h).unwrap()).unwrap();
+        assert_eq!(st.legacy_fallback_hint.as_deref(), Some("vless://example"));
+        assert!(st.quic_stable_runtime_ready);
+        assert!(!st.tls_extension_order_ready);
+        assert_eq!(st.prod_gate, "0.3.0-prod");
         core_stop(h);
     }
 

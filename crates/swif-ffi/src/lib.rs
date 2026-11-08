@@ -7,9 +7,9 @@ use std::ptr;
 use std::sync::{Mutex, OnceLock};
 
 use swif_core::{
-    core_apply_mask_pack, core_import_subscription, core_outbound_json, core_set_route_mode,
-    core_start, core_status, core_stop, core_version, panel_inbound_edge_argv, panel_share_uri,
-    CoreHandle,
+    core_apply_mask_pack, core_import_subscription, core_legacy_fallback_uri, core_outbound_json,
+    core_set_route_mode, core_start, core_status, core_stop, core_version, panel_inbound_edge_argv,
+    panel_share_uri, CoreHandle,
 };
 
 struct HandleSlot {
@@ -41,7 +41,25 @@ pub extern "C" fn swif_string_free(s: *mut c_char) {
 
 #[no_mangle]
 pub extern "C" fn swif_abi_version() -> i32 {
+    // Bump only on C ABI breaks. 0.3.0-prod keeps ABI = 1.
     1
+}
+
+#[no_mangle]
+pub extern "C" fn swif_core_legacy_fallback_alloc(err_out: *mut *mut c_char) -> *mut c_char {
+    let g = slot().lock().unwrap();
+    let Some(h) = g.h.as_ref() else {
+        set_err(err_out, "not started");
+        return ptr::null_mut();
+    };
+    match core_legacy_fallback_uri(h) {
+        Ok(Some(u)) => c_ok(u),
+        Ok(None) => c_ok(String::new()),
+        Err(e) => {
+            set_err(err_out, &e.to_string());
+            ptr::null_mut()
+        }
+    }
 }
 
 #[no_mangle]

@@ -3,6 +3,10 @@ name = "swif-mask"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "swif-pack"
+path = "src/bin/swif_pack.rs"
+
 [dependencies]
 tokio = { workspace = true }
 async-trait = "0.1"
@@ -21,3 +25,6 @@ rand = { workspace = true }
 sha2 = { workspace = true }
 tracing = { workspace = true }
 quinn = { workspace = true }
+clap = { workspace = true }
+hex = { workspace = true }
+anyhow = { workspace = true }

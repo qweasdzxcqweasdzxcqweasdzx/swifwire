@@ -1,0 +1,12 @@
+{
+  "server_addr": "vpn.example.com:443",
+  "server_static_pub_hex": "REPLACE_WITH_64_HEX_SERVER_PUB",
+  "mask_profile": "tls13_stable",
+  "socks_listen": "127.0.0.1:10808",
+  "tls_material_path": "cover-material.json",
+  "tls_verify": "webpki",
+  "pack_trust_pub_hex": "REPLACE_WITH_64_HEX_PACK_TRUST",
+  "legacy_fallback_uri": "vless://REPLACE_LEGACY_SHARE",
+  "start_runtime": true,
+  "route_mode": "rule"
+}

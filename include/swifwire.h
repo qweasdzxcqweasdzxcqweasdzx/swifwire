@@ -32,6 +32,8 @@ SWIF_API int swif_core_import_subscription(const char *url_or_blob, char **err_o
 SWIF_API int swif_core_apply_mask_pack(const uint8_t *data, size_t len, char **err_out);
 SWIF_API char *swif_core_status_alloc(char **err_out);
 SWIF_API char *swif_core_outbound_alloc(char **err_out);
+/* Empty string if unset. Host app dials legacy when SwifWire exhausts. */
+SWIF_API char *swif_core_legacy_fallback_alloc(char **err_out);
 
 /* 3x-ui / panel helpers */
 SWIF_API char *swif_panel_edge_argv_alloc(const char *inbound_json, char **err_out);
