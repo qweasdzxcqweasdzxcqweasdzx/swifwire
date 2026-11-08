@@ -51,6 +51,10 @@ struct Args {
     /// PEM private key (PKCS8).
     #[arg(long)]
     tls_key: Option<PathBuf>,
+    /// Optional 32-byte ticket master (raw file). Prod: separate from static pub.
+    /// Default: server static public bytes (lab compat). Env: SWIF_TICKET_MASTER_HEX.
+    #[arg(long)]
+    ticket_master: Option<PathBuf>,
 }
 
 fn load_or_create_key(path: &PathBuf, pub_path: &PathBuf) -> Result<StaticKeypair> {
@@ -77,6 +81,29 @@ fn load_or_create_key(path: &PathBuf, pub_path: &PathBuf) -> Result<StaticKeypai
 
 fn lab_mode() -> bool {
     std::env::var("SWIF_LAB").ok().as_deref() == Some("1")
+}
+
+fn load_ticket_master(args: &Args, key: &StaticKeypair) -> Result<[u8; 32]> {
+    if let Some(path) = &args.ticket_master {
+        let b = std::fs::read(path).with_context(|| format!("ticket-master {}", path.display()))?;
+        if b.len() != 32 {
+            bail!("ticket-master must be 32 bytes");
+        }
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&b);
+        return Ok(out);
+    }
+    if let Ok(hex) = std::env::var("SWIF_TICKET_MASTER_HEX") {
+        let raw = hex::decode(hex.trim()).context("SWIF_TICKET_MASTER_HEX")?;
+        if raw.len() != 32 {
+            bail!("SWIF_TICKET_MASTER_HEX must be 32 bytes");
+        }
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&raw);
+        return Ok(out);
+    }
+    // Lab/compat default — CRYPTO.md: prod SHOULD separate via --ticket-master.
+    Ok(key.public_bytes())
 }
 
 #[derive(Default)]
@@ -149,14 +176,14 @@ async fn session_loop<S>(
     replay: Arc<AsyncMutex<TicketReplayWindow>>,
     mask_id: &str,
     metrics: Option<Arc<EdgeMetrics>>,
+    ticket_master: [u8; 32],
 ) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let master = key.public_bytes();
     let (server_raw, keys, resumed) = {
         let mut w = replay.lock().await;
-        server_respond_keys_ex_replay(&key, &master, &hello, 0x07, Some(&mut w))
+        server_respond_keys_ex_replay(&key, &ticket_master, &hello, 0x07, Some(&mut w))
             .context("handshake")?
     };
     if resumed {
@@ -270,9 +297,10 @@ async fn handle_null(
     mut client: TcpStream,
     key: Arc<StaticKeypair>,
     replay: Arc<AsyncMutex<TicketReplayWindow>>,
+    ticket_master: [u8; 32],
 ) -> Result<()> {
     let hello = read_pref(&mut client).await.context("client hello")?;
-    session_loop(client, key, hello, replay, "null_tcp", None).await
+    session_loop(client, key, hello, replay, "null_tcp", None, ticket_master).await
 }
 
 async fn handle_tls(
@@ -283,6 +311,7 @@ async fn handle_tls(
     cover_mode: CoverMode,
     replay: Arc<AsyncMutex<TicketReplayWindow>>,
     metrics: Arc<EdgeMetrics>,
+    ticket_master: [u8; 32],
 ) -> Result<()> {
     let mut tls = accept_tls(tcp, &acceptor).await?;
     let mut lb = [0u8; 4];
@@ -310,10 +339,9 @@ async fn handle_tls(
     }
     let mut hello = vec![0u8; n];
     tls.read_exact(&mut hello).await?;
-    let master = key.public_bytes();
     let hs = {
         let mut w = replay.lock().await;
-        server_respond_keys_ex_replay(&key, &master, &hello, 0x07, Some(&mut w))
+        server_respond_keys_ex_replay(&key, &ticket_master, &hello, 0x07, Some(&mut w))
     };
     match hs {
         Ok((server_raw, keys, resumed)) => {
@@ -425,6 +453,7 @@ async fn run_quic_stable(
     args: Args,
     key: Arc<StaticKeypair>,
     replay: Arc<AsyncMutex<TicketReplayWindow>>,
+    ticket_master: [u8; 32],
 ) -> Result<()> {
     if !quic_stable_lab_allowed() {
         bail!("quic_stable is lab-gated; set SWIF_ALLOW_QUIC_STABLE=1 or SWIF_LAB=1");
@@ -442,12 +471,20 @@ async fn run_quic_stable(
         let key = key.clone();
         let replay = replay.clone();
         tokio::spawn(async move {
-            // Keep Connection alive for the stream lifetime.
             let _conn = accepted.conn;
             let mut stream = accepted.stream;
             if let Err(e) = async {
                 let hello = read_pref(&mut stream).await.context("quic hello")?;
-                session_loop(stream, key, hello, replay, "quic_stable", None).await
+                session_loop(
+                    stream,
+                    key,
+                    hello,
+                    replay,
+                    "quic_stable",
+                    None,
+                    ticket_master,
+                )
+                .await
             }
             .await
             {
@@ -461,6 +498,7 @@ async fn run_quic(
     listen: SocketAddr,
     key: Arc<StaticKeypair>,
     replay: Arc<AsyncMutex<TicketReplayWindow>>,
+    ticket_master: [u8; 32],
 ) -> Result<()> {
     let sock = Arc::new(UdpSocket::bind(listen).await?);
     info!("quic_fast UDP listen {listen}");
@@ -474,7 +512,9 @@ async fn run_quic(
         let key = key.clone();
         let replay = replay.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_quic_session(sock, peer, dcid, hello, key, replay).await {
+            if let Err(e) =
+                handle_quic_session(sock, peer, dcid, hello, key, replay, ticket_master).await
+            {
                 error!("quic {peer}: {e:#}");
             }
         });
@@ -488,11 +528,11 @@ async fn handle_quic_session(
     hello: Vec<u8>,
     key: Arc<StaticKeypair>,
     replay: Arc<AsyncMutex<TicketReplayWindow>>,
+    ticket_master: [u8; 32],
 ) -> Result<()> {
-    let master = key.public_bytes();
     let (server_raw, keys, _) = {
         let mut w = replay.lock().await;
-        server_respond_keys_ex_replay(&key, &master, &hello, 0x07, Some(&mut w))?
+        server_respond_keys_ex_replay(&key, &ticket_master, &hello, 0x07, Some(&mut w))?
     };
     let pkt = encode_pref_datagram_slice(&dcid, &server_raw);
     sock.send_to(&pkt, peer).await?;
@@ -555,22 +595,28 @@ async fn main() -> Result<()> {
         .init();
     let args = Args::parse();
     let key = Arc::new(load_or_create_key(&args.key, &args.pub_out)?);
+    let ticket_master = load_ticket_master(&args, &key)?;
     let replay = Arc::new(AsyncMutex::new(TicketReplayWindow::new(4096)));
     info!(
-        "swif-edge listen {} mask={} pub={}",
+        "swif-edge listen {} mask={} pub={} ticket_master={}",
         args.listen,
         args.mask,
-        hex::encode(key.public_bytes())
+        hex::encode(key.public_bytes()),
+        if args.ticket_master.is_some() || std::env::var("SWIF_TICKET_MASTER_HEX").is_ok() {
+            "separate"
+        } else {
+            "static_pub_compat"
+        }
     );
 
     if args.mask == "quic_stable" {
-        return run_quic_stable(args, key, replay).await;
+        return run_quic_stable(args, key, replay, ticket_master).await;
     }
     if args.mask == "quic_fast" || args.mask == "quic_lab" {
         if !lab_mode() {
             warn!("quic_fast/quic_lab is thin UDP cover — lab only; set SWIF_LAB=1 to silence");
         }
-        return run_quic(args.listen, key, replay).await;
+        return run_quic(args.listen, key, replay, ticket_master).await;
     }
     if args.mask == "tls13_stable" {
         if !lab_mode() {
@@ -604,8 +650,17 @@ async fn main() -> Result<()> {
             let replay = replay.clone();
             let metrics = metrics.clone();
             tokio::spawn(async move {
-                if let Err(e) =
-                    handle_tls(sock, key, acceptor, cover, cover_mode, replay, metrics).await
+                if let Err(e) = handle_tls(
+                    sock,
+                    key,
+                    acceptor,
+                    cover,
+                    cover_mode,
+                    replay,
+                    metrics,
+                    ticket_master,
+                )
+                .await
                 {
                     error!("tls peer {peer}: {e:#}");
                 }
@@ -624,7 +679,7 @@ async fn main() -> Result<()> {
         let key = key.clone();
         let replay = replay.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_null(sock, key, replay).await {
+            if let Err(e) = handle_null(sock, key, replay, ticket_master).await {
                 error!("peer {peer}: {e:#}");
             }
         });

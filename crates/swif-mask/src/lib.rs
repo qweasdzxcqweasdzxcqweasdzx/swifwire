@@ -9,6 +9,7 @@ mod quic_initial;
 mod quic_stable;
 mod tls13;
 mod tls_ch_wire;
+mod tls_craft_dial;
 mod tls_fingerprint;
 mod tls_profile;
 mod tls_provider;
@@ -36,8 +37,12 @@ pub use quic_stable::{
     PROFILE_ID as QUIC_STABLE, MAX_PREF_RECORD as QUIC_STABLE_MAX_PREF,
 };
 pub use tls_ch_wire::{
-    build_client_hello_record, craft_status_message, extension_types_from_record,
-    ja3_hash_from_record, ja3_string_from_record, tls_extension_order_ready,
+    build_client_hello_record, build_client_hello_record_live, craft_status_message,
+    extension_types_from_record, ja3_hash_from_record, ja3_string_from_record, LiveClientHelloParams,
+};
+pub use tls_craft_dial::{
+    craft_dial_wired, dial_tls_craft, fingerprint_budget_craft, should_craft_dial,
+    tls_extension_order_ready_for, CraftTlsStream,
 };
 pub use tls_fingerprint::{
     client_hello_intent, client_hello_intent_json, fingerprint_status_message,
@@ -46,9 +51,14 @@ pub use tls_fingerprint::{
 pub use tls_profile::{ClientHelloProfile, TlsPackHints};
 pub use tls_provider::{provider_for_profile, suite_order_ids};
 pub use tls13::{
-    accept_tls, dial_tls, dial_tls_verify, parse_tls_verify, write_pem, LabTlsMaterial,
-    TlsVerifyMode,
+    accept_tls, dial_tls, dial_tls_verify, parse_tls_verify, write_pem, ClientMaskStream,
+    LabTlsMaterial, TlsVerifyMode,
 };
+
+/// Honest status: extension order ready when craft dial is the live path for default chrome pack.
+pub fn tls_extension_order_ready() -> bool {
+    tls_extension_order_ready_for(ClientHelloProfile::ChromeStable)
+}
 
 use async_trait::async_trait;
 use std::net::SocketAddr;

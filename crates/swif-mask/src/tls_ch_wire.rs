@@ -1,8 +1,6 @@
 //! Pack-driven TLS 1.3 ClientHello **wire** builder (0.5).
 //!
-//! Produces a single TLS handshake record with browser-like **extension order**.
-//! Used for JA3/JA4 lab digests and future dual-stack dial (`tls_ch_craft`).
-//! Live `dial_tls` still uses rustls until craft dial is wired — status stays honest.
+//! Lab digests use deterministic shares; live craft dial supplies real random + X25519.
 
 use sha2::{Digest, Sha256};
 
@@ -22,9 +20,39 @@ fn suite_iana_ids(profile: ClientHelloProfile) -> Vec<u16> {
         .collect()
 }
 
-/// Build one TLS record containing ClientHello (handshake type 1).
+/// Live handshake parameters (real entropy + X25519 share).
+#[derive(Debug, Clone)]
+pub struct LiveClientHelloParams {
+    pub random: [u8; 32],
+    pub session_id: Vec<u8>,
+    pub key_share_x25519: [u8; 32],
+    /// Skip ECH/ALPS/compress stubs that some stacks reject; keep pack order for the rest.
+    pub omit_experimental: bool,
+}
+
+impl Default for LiveClientHelloParams {
+    fn default() -> Self {
+        Self {
+            random: [0x11; 32],
+            session_id: Vec::new(),
+            key_share_x25519: [0x42; 32],
+            omit_experimental: false,
+        }
+    }
+}
+
+/// Build one TLS record containing ClientHello (handshake type 1) — lab/deterministic.
 pub fn build_client_hello_record(hints: &TlsPackHints, sni: &str) -> Vec<u8> {
-    let ch = build_client_hello_body(hints, sni);
+    build_client_hello_record_live(hints, sni, &LiveClientHelloParams::default())
+}
+
+/// Live craft dial ClientHello with pack extension order.
+pub fn build_client_hello_record_live(
+    hints: &TlsPackHints,
+    sni: &str,
+    live: &LiveClientHelloParams,
+) -> Vec<u8> {
+    let ch = build_client_hello_body(hints, sni, live);
     let mut hs = Vec::with_capacity(4 + ch.len());
     hs.push(0x01); // client_hello
     hs.push(((ch.len() >> 16) & 0xff) as u8);
@@ -40,11 +68,12 @@ pub fn build_client_hello_record(hints: &TlsPackHints, sni: &str) -> Vec<u8> {
     rec
 }
 
-fn build_client_hello_body(hints: &TlsPackHints, sni: &str) -> Vec<u8> {
+fn build_client_hello_body(hints: &TlsPackHints, sni: &str, live: &LiveClientHelloParams) -> Vec<u8> {
     let mut body = Vec::with_capacity(512);
     body.extend_from_slice(&0x0303u16.to_be_bytes()); // legacy_version TLS1.2
-    body.extend_from_slice(&[0x11; 32]); // deterministic random for vectors
-    body.push(0); // session_id empty
+    body.extend_from_slice(&live.random);
+    body.push(live.session_id.len() as u8);
+    body.extend_from_slice(&live.session_id);
 
     let suites = suite_iana_ids(hints.profile);
     let mut suite_bytes = Vec::with_capacity(2 + suites.len() * 2);
@@ -52,7 +81,6 @@ fn build_client_hello_body(hints: &TlsPackHints, sni: &str) -> Vec<u8> {
         suite_bytes.extend_from_slice(&id.to_be_bytes());
     }
     if hints.grease {
-        // GREASE cipher 0x0a0a at front (Chrome-like).
         let mut with_grease = Vec::with_capacity(2 + suite_bytes.len());
         with_grease.extend_from_slice(&0x0a0au16.to_be_bytes());
         with_grease.extend_from_slice(&suite_bytes);
@@ -61,30 +89,30 @@ fn build_client_hello_body(hints: &TlsPackHints, sni: &str) -> Vec<u8> {
     body.extend_from_slice(&(suite_bytes.len() as u16).to_be_bytes());
     body.extend_from_slice(&suite_bytes);
 
-    body.push(1); // compression methods len
-    body.push(0); // null
+    body.push(1);
+    body.push(0);
 
-    let exts = build_extensions(hints, sni);
+    let exts = build_extensions(hints, sni, live);
     body.extend_from_slice(&(exts.len() as u16).to_be_bytes());
     body.extend_from_slice(&exts);
     body
 }
 
-fn build_extensions(hints: &TlsPackHints, sni: &str) -> Vec<u8> {
+fn build_extensions(hints: &TlsPackHints, sni: &str, live: &LiveClientHelloParams) -> Vec<u8> {
     let order = intended_extension_order(hints.profile);
     let mut out = Vec::new();
-    if order.is_empty() {
-        // rustls_default: minimal required TLS1.3 set
-        for ty in [0x0000u16, 0x000a, 0x000d, 0x0010, 0x002b, 0x0033] {
-            append_ext(&mut out, ty, hints, sni);
+    let types: Vec<u16> = if order.is_empty() {
+        vec![0x0000, 0x000a, 0x000d, 0x0010, 0x002b, 0x002d, 0x0033]
+    } else {
+        order.to_vec()
+    };
+    for ty in types {
+        if live.omit_experimental && matches!(ty, 0x001b | 0x4469 | 0xfe0d) {
+            continue;
         }
-        return out;
-    }
-    for &ty in order {
-        append_ext(&mut out, ty, hints, sni);
+        append_ext(&mut out, ty, hints, sni, live);
     }
     if hints.grease {
-        // Prepend GREASE extension type 0x0a0a with empty data (Chrome places GREASE in ext list).
         let mut greased = Vec::with_capacity(4 + out.len());
         greased.extend_from_slice(&0x0a0au16.to_be_bytes());
         greased.extend_from_slice(&0u16.to_be_bytes());
@@ -94,24 +122,30 @@ fn build_extensions(hints: &TlsPackHints, sni: &str) -> Vec<u8> {
     out
 }
 
-fn append_ext(out: &mut Vec<u8>, ty: u16, hints: &TlsPackHints, sni: &str) {
+fn append_ext(
+    out: &mut Vec<u8>,
+    ty: u16,
+    hints: &TlsPackHints,
+    sni: &str,
+    live: &LiveClientHelloParams,
+) {
     let data = match ty {
         0x0000 => ext_sni(sni),
-        0x0005 => vec![0x01, 0x00, 0x00, 0x00, 0x00], // status_request OCSP
+        0x0005 => vec![0x01, 0x00, 0x00, 0x00, 0x00],
         0x000a => ext_supported_groups(),
-        0x000b => vec![0x01, 0x00], // ec_point_formats uncompressed
+        0x000b => vec![0x01, 0x00],
         0x000d => ext_sig_algs(),
         0x0010 => ext_alpn(&hints.alpn),
-        0x0012 => Vec::new(), // SCT empty
-        0x0017 => Vec::new(), // extended_master_secret
-        0x001b => vec![0x02, 0x00, 0x02], // compress_certificate zlib
-        0x0023 => Vec::new(), // session_ticket
-        0x002b => vec![0x02, 0x03, 0x04], // supported_versions TLS1.3
-        0x002d => vec![0x01, 0x01], // psk_ke_modes psk_dhe_ke
-        0x0033 => ext_key_share(),
+        0x0012 => Vec::new(),
+        0x0017 => Vec::new(),
+        0x001b => vec![0x02, 0x00, 0x02],
+        0x0023 => Vec::new(),
+        0x002b => vec![0x02, 0x03, 0x04],
+        0x002d => vec![0x01, 0x01],
+        0x0033 => ext_key_share_live(&live.key_share_x25519),
         0x4469 => ext_alps(&hints.alpn),
-        0xfe0d => vec![0x00], // ECH stub (not real ECH)
-        0xff01 => vec![0x00], // renegotiation_info
+        0xfe0d => vec![0x00],
+        0xff01 => vec![0x00],
         _ => Vec::new(),
     };
     out.extend_from_slice(&ty.to_be_bytes());
@@ -164,12 +198,11 @@ fn ext_alpn(alpn: &[String]) -> Vec<u8> {
     d
 }
 
-fn ext_key_share() -> Vec<u8> {
-    // x25519 with deterministic 32-byte share (lab/fingerprint only — not a live HS key).
+fn ext_key_share_live(pub_bytes: &[u8; 32]) -> Vec<u8> {
     let mut entry = Vec::with_capacity(4 + 32);
     entry.extend_from_slice(&0x001du16.to_be_bytes());
     entry.extend_from_slice(&32u16.to_be_bytes());
-    entry.extend_from_slice(&[0x42; 32]);
+    entry.extend_from_slice(pub_bytes);
     let mut d = Vec::with_capacity(2 + entry.len());
     d.extend_from_slice(&(entry.len() as u16).to_be_bytes());
     d.extend_from_slice(&entry);
@@ -299,14 +332,8 @@ pub fn ja3_hash_from_record(rec: &[u8]) -> Option<String> {
     Some(hex::encode(digest))
 }
 
-/// True when crafted-CH path is selected for dial (env). Live dial not wired yet → always false.
-pub fn tls_extension_order_ready() -> bool {
-    // Reserve: SWIF_TLS_CH_CRAFT=1 will flip this once dial_tls_craft ships.
-    false
-}
-
 pub fn craft_status_message() -> &'static str {
-    "tls_ch_wire: ClientHello craft encoder ready for JA3 lab; dial_tls still rustls (extension_order=false)"
+    "tls_ch_wire: pack-ordered ClientHello builder (lab + live params)"
 }
 
 #[cfg(test)]

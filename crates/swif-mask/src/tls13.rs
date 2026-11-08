@@ -1,7 +1,10 @@
 //! `tls13_stable` — TLS 1.3 underlay (lab pin / webpki / PEM material).
 
+use std::io;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
 use base64::Engine;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -10,12 +13,58 @@ use rustls::{
     ClientConfig, DigitallySignedStruct, Error as TlsError, RootCertStore, ServerConfig,
     SignatureScheme,
 };
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream as ClientTls;
 use tokio_rustls::server::TlsStream as ServerTls;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
+use crate::tls_craft_dial::{should_craft_dial, CraftTlsStream};
 use crate::tls_provider::provider_for_profile;
+
+/// Client TLS pipe: craft dial (pack-ordered CH) or rustls fallback.
+pub enum ClientMaskStream {
+    Craft(CraftTlsStream),
+    Rustls(ClientTls<TcpStream>),
+}
+
+impl AsyncRead for ClientMaskStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Craft(s) => Pin::new(s).poll_read(cx, buf),
+            Self::Rustls(s) => Pin::new(s).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for ClientMaskStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        match self.get_mut() {
+            Self::Craft(s) => Pin::new(s).poll_write(cx, buf),
+            Self::Rustls(s) => Pin::new(s).poll_write(cx, buf),
+        }
+    }
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Craft(s) => Pin::new(s).poll_flush(cx),
+            Self::Rustls(s) => Pin::new(s).poll_flush(cx),
+        }
+    }
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Craft(s) => Pin::new(s).poll_shutdown(cx),
+            Self::Rustls(s) => Pin::new(s).poll_shutdown(cx),
+        }
+    }
+}
 
 /// How the client verifies the cover TLS certificate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -242,7 +291,7 @@ impl ServerCertVerifier for PinCertVerifier {
 pub async fn dial_tls(
     addr: std::net::SocketAddr,
     material: &LabTlsMaterial,
-) -> std::io::Result<ClientTls<TcpStream>> {
+) -> std::io::Result<ClientMaskStream> {
     dial_tls_verify(addr, material, TlsVerifyMode::Pin).await
 }
 
@@ -250,12 +299,21 @@ pub async fn dial_tls_verify(
     addr: std::net::SocketAddr,
     material: &LabTlsMaterial,
     verify: TlsVerifyMode,
-) -> std::io::Result<ClientTls<TcpStream>> {
+) -> std::io::Result<ClientMaskStream> {
+    if should_craft_dial(&material.hints) {
+        match crate::tls_craft_dial::dial_tls_craft(addr, material, verify).await {
+            Ok(s) => return Ok(ClientMaskStream::Craft(s)),
+            Err(e) => {
+                tracing::warn!("craft dial failed ({e}); falling back to rustls");
+            }
+        }
+    }
     let tcp = TcpStream::connect(addr).await?;
     let connector = material.connector(verify)?;
     let name = ServerName::try_from(material.server_name.clone())
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
-    connector.connect(name, tcp).await
+    let s = connector.connect(name, tcp).await?;
+    Ok(ClientMaskStream::Rustls(s))
 }
 
 pub fn parse_tls_verify(s: &str) -> Option<TlsVerifyMode> {

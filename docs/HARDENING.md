@@ -6,7 +6,7 @@ Neutral goal: measurable cover parity, fast mask-pack swap, dual-stack migration
 
 | # | Claim / need | Code (file:line) | 0.3.0 state | Residual | Target WP |
 |---|--------------|------------------|-------------|----------|-----------|
-| R1 | Chrome-like ClientHello extension order (JA3/JA4) | `tls_ch_wire.rs` craft encoder; dial still rustls; status `tls_extension_order_ready=false` | Craft JA3 lab | Live craft dial not wired | 0.5 dial |
+| R1 | Chrome-like ClientHello extension order (JA3/JA4) | `tls_ch_wire` + `tls_craft_dial` (opt-in `SWIF_TLS_CH_CRAFT`); rustls fallback | HS works; app AEAD e2e open | Default dial still rustls; `extension_order_ready=false` | 0.5 app-keys |
 | R2 | Quinn forged Initial | `quic_initial.rs` SQI1; `quic_stable.rs` quinn dial | Grease/DCID policy only | No byte-perfect Initial inject into quinn | WP4 residual; 0.5 |
 | R3 | Host **executes** legacy URI | `swifwire.h:36` alloc; `lib.rs:220` getter; status hint | Hint only | No reference host dialer | WP5 |
 | R4 | Dual-stack beside xray | docs only; edge sidecar | Docs thin | No systemd/panel contract pack | WP7 |
@@ -37,4 +37,4 @@ Neutral goal: measurable cover parity, fast mask-pack swap, dual-stack migration
 |-----|--------|
 | 0.3.0-prod | test gate, swif-pack, legacy hint ABI, quinn lab |
 | 0.4.0 | WP0–WP8: vectors/CRYPTO; PEM+cover hard; cover-probe; DialPolicy; legacy host; UniFFI skeleton; dual-stack docs; metrics; gate |
-| 0.5.0-wip | tls_ch_wire + swif-pack ja3; fuzz_like; sbom.ps1; quic forge scaffold; prod_gate wip |
+| 0.5.0-wip | tls_ch_wire + craft_dial module (opt-in); ticket-master; negative_hs; DialPolicy quic opt-in only; fuzz/sbom |

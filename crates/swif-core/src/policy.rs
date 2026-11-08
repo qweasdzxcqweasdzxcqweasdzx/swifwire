@@ -58,9 +58,9 @@ impl Default for DialPolicy {
             backoff_ms: 0,
             allow_quic_lab_fallback: std::env::var("SWIF_ALLOW_QUIC_LAB").ok().as_deref()
                 == Some("1"),
+            // QUIC only via explicit opt-in — never silent switch from SWIF_LAB alone.
             allow_quic_stable_fallback: std::env::var("SWIF_ALLOW_QUIC_STABLE").ok().as_deref()
-                == Some("1")
-                || std::env::var("SWIF_LAB").ok().as_deref() == Some("1"),
+                == Some("1"),
             legacy_fallback_uri: None,
         }
     }

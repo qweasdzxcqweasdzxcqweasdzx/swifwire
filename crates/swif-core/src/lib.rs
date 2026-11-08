@@ -210,7 +210,8 @@ pub fn core_start(config_json: &str) -> Result<CoreHandle, CoreError> {
                 legacy_fallback_hint: legacy,
                 tls_extension_order_ready: swif_mask::tls_extension_order_ready(),
                 quic_stable_runtime_ready: swif_mask::quic_stable_ready(),
-                prod_gate: "0.5.0-wip".into(),
+                prod_gate: "0.5.0-wip".into(), // craft dial wired; QUIC forge still residual
+
             },
         }),
     })
@@ -452,6 +453,7 @@ mod tests {
         let st: CoreStatus = serde_json::from_str(&core_status(&h).unwrap()).unwrap();
         assert_eq!(st.legacy_fallback_hint.as_deref(), Some("vless://example"));
         assert!(st.quic_stable_runtime_ready);
+        // Craft dial is opt-in (SWIF_TLS_CH_CRAFT) until app-key e2e is green.
         assert!(!st.tls_extension_order_ready);
         assert_eq!(st.prod_gate, "0.5.0-wip");
         core_stop(h);

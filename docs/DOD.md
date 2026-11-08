@@ -55,7 +55,8 @@ Gate: `prod-gate.ps1` + `swif-pack ja3` + `scripts/sbom.ps1`.
 
 ### A. TLS / JA3
 - [x] Pack-driven ClientHello **wire encoder** (`tls_ch_wire`) + JA3 lab digests
-- [ ] Live dial uses crafted CH (`tls_extension_order_ready=true`)
+- [x] Live craft dial **module** + opt-in (`SWIF_TLS_CH_CRAFT=1`) + rustls fallback
+- [ ] App-traffic AEAD parity vs rustls edge → default craft + `tls_extension_order_ready=true`
 - [ ] JA4_a/b against browser capture corpus
 
 ### B. QUIC

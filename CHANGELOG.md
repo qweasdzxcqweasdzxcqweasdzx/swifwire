@@ -6,11 +6,13 @@
 
 Toward mass-client DPI cover (dual-stack still required):
 
-- Crafted TLS ClientHello encoder (`tls_ch_wire`) with pack extension order + `swif-pack ja3`
-- Status remains `tls_extension_order_ready=false` until craft dial replaces rustls CH
-- QUIC `forge_ready=false` + inject helper scaffold (`SWIF_QUIC_FORGE_INJECT`)
-- Property corpus `swif-crypto/tests/fuzz_like.rs`
-- `scripts/sbom.ps1` CycloneDX-ish from cargo metadata
+- Crafted TLS ClientHello encoder (`tls_ch_wire`) + **live craft dial** module (`tls_craft_dial`, opt-in `SWIF_TLS_CH_CRAFT=1`); rustls fallback; app-AEAD e2e still open
+- Status: `craft_dial_wired=true`, `tls_extension_order_ready=false` until craft is default-green
+- Edge `--ticket-master` / `SWIF_TICKET_MASTER_HEX` (prod separate from static pub)
+- DialPolicy: quic_stable only via `SWIF_ALLOW_QUIC_STABLE` (no silent SWIF_LAB switch)
+- Session negative/stress tests (`negative_hs`)
+- QUIC `forge_ready=false` + inject scaffold
+- Property corpus + SBOM scripts
 - `prod_gate=0.5.0-wip`
 
 ## 0.4.0

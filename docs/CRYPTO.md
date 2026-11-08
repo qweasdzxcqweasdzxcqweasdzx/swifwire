@@ -27,7 +27,9 @@ Wire name: **SwifHS v0** (`PROTOCOL_VERSION = 0`). Migrating to real Noise_IK re
 
 ## Tickets
 
-- Seal with ticket master (server static pub bytes as lab master; prod may separate)
+- Seal with **ticket master** (32 bytes):
+  - Lab/compat default: server static **public** bytes
+  - Prod: `--ticket-master` file (32 raw) or `SWIF_TICKET_MASTER_HEX` — **separate** from static pub
 - TTL: 24h (`TICKET_TTL_SECS`)
 - `resume_fast`: eph=0, PSK only
 - `resume_fs`: fresh eph mixed with PSK
