@@ -3,7 +3,7 @@
 | File | Role |
 |------|------|
 | `example-pack.dev.json` | Unsigned template (edit → re-sign) |
-| `prod-baseline.v1.json` | Signed baseline for 0.3.0 clients |
+| `prod-baseline.v1.json` | Signed baseline for 0.4.0 clients |
 | `pack.pub` | Trust verifying key (hex) — ship to clients |
 | `pack.key` | **Ops only** (gitignored) — never distribute |
 

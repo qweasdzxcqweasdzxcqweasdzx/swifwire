@@ -5,8 +5,8 @@
   },
   "format": 1,
   "issued_at": "2026-11-09T00:00:00Z",
-  "min_core": "0.3.0",
-  "pack_id": "prod-baseline-0.3.0",
+  "min_core": "0.4.0",
+  "pack_id": "prod-baseline-0.4.0",
   "profiles": [
     {
       "cover": {
@@ -49,7 +49,7 @@
         ],
         "client_hello_profile": "chrome_stable",
         "grease": true,
-        "note": "ALPN applied via rustls; full JA3/JA4 mimicry still open (WP2C)."
+        "note": "ALPN/suites via rustls; JA3 extension order residual (0.5)."
       },
       "underlay": "tcp"
     },
@@ -125,6 +125,6 @@
   "signature": {
     "alg": "ed25519",
     "key_id": "prod-baseline",
-    "sig_b64": "Ct0K4PeywrT7aoX3ZLdjdB+Qxkk7LgQ4XKNg1aytAJ5KZHVC8smIixJaCu52VEcGTr2T1zr/TzVmDyCagbgBDA=="
+    "sig_b64": "LIXRrUGwNVMV4UBNsm0IqazqekaKFAIv9qSusmmfQaQeUMadckPfwjkLRS+3spgqIllyZbmq+MvjZ2+fqlfCDA=="
   }
 }

@@ -21,8 +21,8 @@
 |------|---------|
 | Язык | Rust workspace |
 | Crypto | X25519 + HKDF-SHA256 + ChaCha20-Poly1305 |
-| Handshake | Noise_IK-like 1-RTT; 0-RTT data запрещён |
-| Маски MVP | `tls13_stable` + `quic_fast` |
+| Handshake | SwifHS v0 1-RTT (not Noise_IK/`snow`); 0-RTT data запрещён |
+| Маски MVP | `tls13_stable` + `quic_stable` (lab) / `quic_lab` |
 | Padding | всегда ON |
 | Probe fail | cover mirror |
 | Pack sign | ed25519 |
@@ -77,7 +77,7 @@ swifwire/
 ## Фаза 1 — M1 (дни 3–30)
 
 1. `swif-wire` — varint/frames + fuzz.
-2. `swif-crypto` — AEAD, HKDF, Noise_IK-like (`snow` + wrappers).
+2. `swif-crypto` — AEAD, HKDF, SwifHS helpers (not `snow`).
 3. `swif-session` — records, rekey, ticket.
 4. `swif-mux` — STREAM_* + DATAGRAM + window.
 5. `swif-shape` — histogram pad.
