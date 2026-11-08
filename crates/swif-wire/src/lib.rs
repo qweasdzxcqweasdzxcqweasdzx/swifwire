@@ -6,8 +6,8 @@ mod frame;
 mod varint;
 
 pub use control::{
-    backoff, health, mask_ack, mask_offer, parse_backoff, parse_ctrl, parse_health, parse_mask_ack,
-    parse_mask_offer,
+    backoff, early_ctrl, health, mask_ack, mask_offer, parse_backoff, parse_ctrl, parse_early_ctrl,
+    parse_health, parse_mask_ack, parse_mask_offer, parse_rekey, rekey,
 };
 pub use error::{Error, Result};
 pub use frame::bodies;

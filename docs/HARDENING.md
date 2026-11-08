@@ -42,5 +42,6 @@ Goal language: measurable cover / probe-resistance, swappable masks — **not** 
 | 0.2.x harden-1 | SwifHS v0 spec; resume_fs; cover mirror; PEM; SWIF_LAB |
 | 0.2.x harden-2 | webpki verify mode; shaper idle/min_pad; DialPolicy runtime; smoke-probe-cover |
 | 0.2.x harden-3 | pack ALPN/`chrome_stable` hints via rustls; quic_lab grease; `quic_stable` scaffold; `legacy_fallback_uri` |
+| 0.2.x proto-4 | CryptoProvider suite/kx order; session rekey+key_phase; CONTROL_EARLY; ticket replay window |
 
-**Still open:** full JA3/JA4 uTLS; quinn-backed `quic_stable` runtime; host-app execution of legacy URI.
+**Still open:** full JA3/JA4 uTLS (extension order); quinn-backed `quic_stable` runtime; host-app legacy dialer.

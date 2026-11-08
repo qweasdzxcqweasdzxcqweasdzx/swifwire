@@ -86,7 +86,8 @@ Free every allocated char* with swif_string_free.
 
 Read docs/HARDENING.md.
 Done: SwifHS v0, resume_fs, cover mirror, PEM, SWIF_LAB, tls_verify pin|webpki, shaper idle, DialPolicy (tls-sticky), smoke-probe-cover, pack ALPN hints, quic_lab grease, quic_stable scaffold, legacy_fallback_uri.
-Open: full uTLS JA3/JA4, quinn quic_stable runtime, host-app legacy dialer.
+Open: full uTLS extension-order JA3/JA4, quinn quic_stable runtime, host-app legacy dialer.
+Session: REKEY ctrl=6 epoch; Early ctrl=9 (no TUN); ticket replay window helper.
 
 ## Dual-stack (phase 1)
 

@@ -46,8 +46,9 @@ pub struct TlsPackHints {
 
 impl Default for TlsPackHints {
     fn default() -> Self {
+        // Prod-oriented default: chrome_stable suite order + h2 ALPN (still not full uTLS).
         Self {
-            profile: ClientHelloProfile::RustlsDefault,
+            profile: ClientHelloProfile::ChromeStable,
             alpn: vec!["h2".into(), "http/1.1".into()],
             grease: true,
             sni_pool_ref: None,

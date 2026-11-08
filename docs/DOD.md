@@ -22,7 +22,9 @@ See [HARDENING.md](HARDENING.md). Neutral goal: swappable mask + measurable cove
 - [x] Pack-driven ALPN + named hello profile (`TlsPackHints`) — full JA3/uTLS still open
 - [x] `quic_lab` grease DCID/version; `quic_stable` scaffold (`is_runtime_ready=false`)
 - [x] `legacy_fallback_uri` config + dial-exhausted hint (host app executes legacy)
-- [ ] Full browser ClientHello FP (uTLS-class) — WP2C remaining
+- [x] Partial ClientHello FP: cipher/kx CryptoProvider profiles (+ ALPN)
+- [x] Session REKEY + key_phase; CONTROL_EARLY; TicketReplayWindow
+- [ ] Full browser ClientHello FP (extension order / uTLS) — remaining
 - [ ] Quinn/pack `quic_stable` runtime — WP3 remaining
 - [ ] cargo test + smoke-all green on release branch
 

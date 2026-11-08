@@ -32,6 +32,37 @@ pub fn backoff(ms: u32, reason: u16) -> Frame {
     bodies::control(CtrlType::Backoff as u16, &b)
 }
 
+/// REKEY offer/ack: epoch u64. Peer derives next keys via `derive_rekey_keys`.
+pub fn rekey(epoch: u64) -> Frame {
+    let mut b = BytesMut::new();
+    b.put_u64(epoch);
+    bodies::control(CtrlType::Rekey as u16, &b)
+}
+
+pub fn parse_rekey(payload: &[u8]) -> Option<u64> {
+    if payload.len() < 8 {
+        return None;
+    }
+    Some(u64::from_be_bytes(payload[0..8].try_into().ok()?))
+}
+
+/// CONTROL_EARLY: opaque reason code (no stream/TUN). Used on resume path only.
+pub fn early_ctrl(reason: u16, note: &str) -> Frame {
+    let mut b = BytesMut::new();
+    b.put_u16(reason);
+    put_str(&mut b, note);
+    bodies::control(CtrlType::Early as u16, &b)
+}
+
+pub fn parse_early_ctrl(payload: &[u8]) -> Option<(u16, String)> {
+    if payload.len() < 2 {
+        return None;
+    }
+    let reason = u16::from_be_bytes(payload[0..2].try_into().ok()?);
+    let (note, _) = take_str(&payload[2..])?;
+    Some((reason, note))
+}
+
 pub fn parse_ctrl(frame: &Frame) -> Option<(CtrlType, Bytes)> {
     if frame.body.len() < 2 {
         return None;
@@ -46,6 +77,7 @@ pub fn parse_ctrl(frame: &Frame) -> Option<(CtrlType, Bytes)> {
         6 => CtrlType::Rekey,
         7 => CtrlType::Close,
         8 => CtrlType::Ticket,
+        9 => CtrlType::Early,
         _ => return None,
     };
     Some((ctrl, frame.body.slice(2..)))

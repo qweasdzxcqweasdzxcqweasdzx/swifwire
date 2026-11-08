@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- **Harden-3:** pack `TlsPackHints` (ALPN + chrome/firefox/rustls profile ids); greased `quic_lab`; `quic_stable` scaffold; `legacy_fallback_uri` dual-stack hook
+- **Proto-4:** rustls CryptoProvider cipher/kx profiles; `derive_rekey_keys` + session epoch/key_phase; CONTROL_EARLY; `TicketReplayWindow`; WIRE §3.1/§4.5–4.7
+- **Harden-3:** pack `TlsPackHints`; greased `quic_lab`; `quic_stable` scaffold; `legacy_fallback_uri`
 - **Harden-2:** `tls_verify` pin/webpki; shaper idle; DialPolicy; `smoke-probe-cover.ps1`
 - **Harden-1:** SwifHS v0; resume_fs; cover mirror; PEM; `SWIF_LAB`
 - Docs/schemas for client + server agents

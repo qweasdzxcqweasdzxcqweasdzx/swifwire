@@ -1,8 +1,8 @@
-use swif_crypto::{open_record, seal_record, SessionKeys};
+use swif_crypto::{derive_rekey_keys, open_record, seal_record, SessionKeys};
 use swif_shape::Shaper;
-use swif_wire::{Frame, RecordHdr};
+use swif_wire::{Frame, RecordHdr, HDR_KEY_PHASE};
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 #[derive(Clone, Copy)]
 pub enum Direction {
@@ -17,6 +17,10 @@ pub struct SessionTransport {
     /// Am I the client? then send uses k_c2s
     is_client: bool,
     shaper: Shaper,
+    /// Traffic secret epoch (0 = post-handshake).
+    epoch: u64,
+    /// Wire key_phase bit for AEAD records after odd epochs.
+    key_phase: bool,
 }
 
 impl SessionTransport {
@@ -27,6 +31,8 @@ impl SessionTransport {
             recv_counter: 0,
             is_client: true,
             shaper,
+            epoch: 0,
+            key_phase: false,
         }
     }
 
@@ -37,7 +43,13 @@ impl SessionTransport {
             recv_counter: 0,
             is_client: false,
             shaper,
+            epoch: 0,
+            key_phase: false,
         }
+    }
+
+    pub fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     fn send_key_salt(&self) -> (&swif_crypto::AeadKey, swif_crypto::NonceSalt) {
@@ -56,11 +68,15 @@ impl SessionTransport {
         }
     }
 
+    fn record_hdr(&self) -> RecordHdr {
+        RecordHdr::v0_key_phase(self.key_phase)
+    }
+
     pub fn seal_frame(&mut self, frame: &Frame) -> Result<Vec<u8>> {
         let encoded = frame.encode_vec();
         let shaped = self.shaper.wrap(&encoded);
         let (key, salt) = self.send_key_salt();
-        let out = seal_record(key, salt, self.send_counter, RecordHdr::v0(), &shaped)?;
+        let out = seal_record(key, salt, self.send_counter, self.record_hdr(), &shaped)?;
         self.send_counter += 1;
         self.shaper.mark_activity();
         Ok(out)
@@ -69,7 +85,7 @@ impl SessionTransport {
     pub fn seal_raw(&mut self, plaintext: &[u8]) -> Result<Vec<u8>> {
         let shaped = self.shaper.wrap(plaintext);
         let (key, salt) = self.send_key_salt();
-        let out = seal_record(key, salt, self.send_counter, RecordHdr::v0(), &shaped)?;
+        let out = seal_record(key, salt, self.send_counter, self.record_hdr(), &shaped)?;
         self.send_counter += 1;
         self.shaper.mark_activity();
         Ok(out)
@@ -88,10 +104,25 @@ impl SessionTransport {
         self.shaper.idle_timeout()
     }
 
+    /// Initiate local rekey to `epoch` (must be current+1). Caller sends CONTROL Rekey first.
+    pub fn advance_rekey(&mut self, epoch: u64) -> Result<()> {
+        if epoch != self.epoch + 1 {
+            return Err(Error::Handshake);
+        }
+        self.keys = derive_rekey_keys(&self.keys, epoch);
+        self.epoch = epoch;
+        self.key_phase = !self.key_phase;
+        self.send_counter = 0;
+        self.recv_counter = 0;
+        Ok(())
+    }
+
     /// Decrypt one record from front of buffer; returns frame + pad leftover ignored.
     pub fn open_frame(&mut self, input: &[u8]) -> Result<(Frame, usize)> {
         let (key, salt) = self.recv_key_salt();
-        let (_hdr, pt, n) = open_record(key, salt, self.recv_counter, input)?;
+        let (hdr, pt, n) = open_record(key, salt, self.recv_counter, input)?;
+        // Peers may flip key_phase on rekey; tolerate either bit while counters match keys.
+        let _ = hdr.flags.0 & HDR_KEY_PHASE;
         self.recv_counter += 1;
         self.shaper.mark_activity();
         let (frame, _) = Frame::decode_with_pad(&pt)?;
@@ -120,6 +151,22 @@ mod tests {
         let wire = c.seal_frame(&f).unwrap();
         let (got, n) = s.open_frame(&wire).unwrap();
         assert_eq!(n, wire.len());
+        assert_eq!(got, f);
+    }
+
+    #[test]
+    fn rekey_both_sides() {
+        let server = StaticKeypair::generate();
+        let (cr, eph) = client_hello_inner(server.public_bytes(), 1);
+        let (sr, ks) = server_respond_keys(&server, &cr, 1).unwrap();
+        let kc = client_finish_keys(server.public_bytes(), &eph, &cr, &sr).unwrap();
+        let mut c = SessionTransport::new_client(kc, Shaper::new(ShaperProfile::default()));
+        let mut s = SessionTransport::new_server(ks, Shaper::new(ShaperProfile::default()));
+        c.advance_rekey(1).unwrap();
+        s.advance_rekey(1).unwrap();
+        let f = bodies::stream_data(1, b"after-rekey");
+        let wire = c.seal_frame(&f).unwrap();
+        let (got, _) = s.open_frame(&wire).unwrap();
         assert_eq!(got, f);
     }
 }

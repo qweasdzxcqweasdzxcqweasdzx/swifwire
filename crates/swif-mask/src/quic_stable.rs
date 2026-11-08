@@ -1,8 +1,13 @@
 //! `quic_stable` — pack-driven QUIC-like underlay (WP3).
 //!
-//! Status: **scaffold only**. Runtime still uses greased `quic_lab` thin cover.
-//! Next: quinn/quiche + pack Initial/Handshake templates. Do not select as
-//! DialPolicy prod default until `is_runtime_ready()` is true.
+//! ## Target framing (normative intent)
+//! 1. Real QUIC 1-RTT (quinn) with pack-selected ALPN (`h3` or cover ALPN).
+//! 2. Bidirectional QUIC stream 0 carries length-prefixed SwifHS + AEAD records
+//!    (same pref framing as TCP masks).
+//! 3. Datagrams map to QUIC datagrams when available.
+//!
+//! Status: **scaffold**. Runtime still uses greased `quic_lab`.  
+//! Do not select as DialPolicy prod default until `is_runtime_ready()` is true.
 
 use crate::pack::MaskProfile;
 

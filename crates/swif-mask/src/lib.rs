@@ -8,6 +8,7 @@ mod quic_fast;
 mod quic_stable;
 mod tls13;
 mod tls_profile;
+mod tls_provider;
 
 pub use cover::{
     mirror_to_upstream, run_lab_cover, serve_builtin_http, serve_cover, CoverMode, COVER_HTML,
@@ -23,6 +24,7 @@ pub use quic_fast::{
 };
 pub use quic_stable::{is_runtime_ready as quic_stable_ready, status_message as quic_stable_status, QuicStableHints, PROFILE_ID as QUIC_STABLE};
 pub use tls_profile::{ClientHelloProfile, TlsPackHints};
+pub use tls_provider::{provider_for_profile, suite_order_ids};
 pub use tls13::{
     accept_tls, dial_tls, dial_tls_verify, parse_tls_verify, write_pem, LabTlsMaterial,
     TlsVerifyMode,

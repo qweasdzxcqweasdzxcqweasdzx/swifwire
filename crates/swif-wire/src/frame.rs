@@ -53,6 +53,8 @@ pub enum CtrlType {
     Rekey = 6,
     Close = 7,
     Ticket = 8,
+    /// Early control after resume ticket (no TUN/SOCKS payload allowed).
+    Early = 9,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -81,6 +83,13 @@ impl RecordHdr {
     pub fn v0() -> Self {
         Self {
             flags: HdrFlags::new(VERSION_NIBBLE_V0, 0),
+        }
+    }
+
+    pub fn v0_key_phase(phase: bool) -> Self {
+        let f = if phase { HDR_KEY_PHASE } else { 0 };
+        Self {
+            flags: HdrFlags::new(VERSION_NIBBLE_V0, f),
         }
     }
 

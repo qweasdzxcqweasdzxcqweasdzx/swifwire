@@ -9,6 +9,7 @@ pub const LABEL_S2C: &str = "swifwire/v0/key_s2c";
 pub const LABEL_TICKET: &str = "swifwire/v0/ticket";
 pub const LABEL_NONCE: &str = "swifwire/v0/nonce_salt";
 pub const LABEL_PAD: &str = "swifwire/v0/padseed";
+pub const LABEL_REKEY: &str = "swifwire/v0/rekey";
 
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct SessionKeys {
@@ -52,6 +53,17 @@ pub fn derive_session_keys(shared: &[u8], transcript: &[u8]) -> SessionKeys {
     }
 }
 
+/// Derive next epoch keys from current traffic secrets + epoch counter (SwifHS rekey).
+pub fn derive_rekey_keys(current: &SessionKeys, epoch: u64) -> SessionKeys {
+    let mut ikm = [0u8; 64];
+    ikm[..32].copy_from_slice(&current.k_c2s.0);
+    ikm[32..].copy_from_slice(&current.k_s2c.0);
+    let mut salt = [0u8; 16];
+    salt[..8].copy_from_slice(&epoch.to_be_bytes());
+    salt[8..].copy_from_slice(LABEL_REKEY.as_bytes().get(..8).unwrap_or(b"rekeyv0!"));
+    derive_session_keys(&ikm, &salt)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -62,5 +74,15 @@ mod tests {
         let b = derive_session_keys(b"shared-secret-32-bytes-pad!!!!!!", b"transcript");
         assert_eq!(a.k_c2s.0, b.k_c2s.0);
         assert_ne!(a.k_c2s.0, a.k_s2c.0);
+    }
+
+    #[test]
+    fn rekey_changes_keys() {
+        let a = derive_session_keys(b"shared-secret-32-bytes-pad!!!!!!", b"transcript");
+        let b = derive_rekey_keys(&a, 1);
+        let c = derive_rekey_keys(&a, 1);
+        assert_ne!(a.k_c2s.0, b.k_c2s.0);
+        assert_eq!(b.k_c2s.0, c.k_c2s.0);
+        assert_ne!(derive_rekey_keys(&a, 2).k_c2s.0, b.k_c2s.0);
     }
 }

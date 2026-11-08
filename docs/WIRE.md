@@ -126,6 +126,18 @@ bit5  fake_dns
 
 ---
 
+## 3.1 Mask TLS ClientHello profiles (underlay, not SwifHS)
+
+Pack `templates.client_hello_profile`:
+
+| Profile | Cipher suite order (TLS1.3) | Notes |
+|---------|-----------------------------|-------|
+| `rustls_default` | provider default | lab |
+| `chrome_stable` | AES_128_GCM, CHACHA20, AES_256_GCM; X25519→P-256 | default pack intent |
+| `firefox_stable` | CHACHA20, AES_128_GCM, AES_256_GCM | |
+
+ALPN from pack. Extension order / GREASE extensions: **not** emulated (needs uTLS).
+
 ## 4. Handshake messages (inside mask pipe, pre-AEAD) — **SwifHS v0**
 
 Не AEAD-record. Это **не** Noise_IK / `snow`. Имя протокола: **SwifHS v0** (`PROTOCOL_VERSION = 0`).  
@@ -179,6 +191,24 @@ pad:          random
 **Важно:** `magic_inner` только внутри mask. Probe без ключа маски magic не видит.
 
 Если SwifHS fail: сервер **не** отвечает ServerHelloInner; продолжает cover (`mirror_upstream` или lab `builtin_http`).
+
+### 4.5 REKEY (post-AEAD CONTROL)
+
+```
+ctrl = Rekey (6)
+epoch: u64 BE   // must be previous+1
+```
+
+Both peers call `derive_rekey_keys(current, epoch)`, flip record `key_phase` bit, reset AEAD counters.
+
+### 4.6 CONTROL_EARLY (ctrl = 9)
+
+Allowed on ticket-resume path before first STREAM_OPEN. Payload: `reason:u16` + note string.  
+**Forbidden:** TUN / SOCKS application data in Early. Used for mask hints / backoff only.
+
+### 4.7 Ticket replay
+
+Server SHOULD keep a digest window of recently accepted resume tickets (`TicketReplayWindow`). Replay → cover path (no ServerHelloInner).
 
 ---
 

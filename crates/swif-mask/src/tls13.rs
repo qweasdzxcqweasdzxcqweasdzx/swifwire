@@ -6,11 +6,16 @@ use std::sync::Arc;
 use base64::Engine;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
-use rustls::{ClientConfig, DigitallySignedStruct, Error as TlsError, RootCertStore, SignatureScheme};
+use rustls::{
+    ClientConfig, DigitallySignedStruct, Error as TlsError, RootCertStore, ServerConfig,
+    SignatureScheme,
+};
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream as ClientTls;
 use tokio_rustls::server::TlsStream as ServerTls;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
+
+use crate::tls_provider::provider_for_profile;
 
 /// How the client verifies the cover TLS certificate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -64,10 +69,25 @@ impl LabTlsMaterial {
         }
     }
 
+    fn client_builder(&self) -> std::io::Result<rustls::ConfigBuilder<ClientConfig, rustls::WantsVerifier>> {
+        let provider = provider_for_profile(self.hints.profile);
+        ClientConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    }
+
+    fn server_builder(&self) -> std::io::Result<rustls::ConfigBuilder<ServerConfig, rustls::WantsVerifier>> {
+        let provider = provider_for_profile(self.hints.profile);
+        ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    }
+
     pub fn acceptor(&self) -> std::io::Result<TlsAcceptor> {
         let cert = CertificateDer::from(self.cert_der.clone());
         let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(self.key_der.clone()));
-        let mut cfg = rustls::ServerConfig::builder()
+        let mut cfg = self
+            .server_builder()?
             .with_no_client_auth()
             .with_single_cert(vec![cert], key)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
@@ -82,7 +102,8 @@ impl LabTlsMaterial {
         let verifier = Arc::new(PinCertVerifier {
             expect: self.cert_der.clone(),
         });
-        let mut cfg = ClientConfig::builder()
+        let mut cfg = self
+            .client_builder()?
             .dangerous()
             .with_custom_certificate_verifier(verifier)
             .with_no_client_auth();
@@ -93,7 +114,8 @@ impl LabTlsMaterial {
     pub fn connector_webpki(&self) -> std::io::Result<TlsConnector> {
         let mut roots = RootCertStore::empty();
         roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let mut cfg = ClientConfig::builder()
+        let mut cfg = self
+            .client_builder()?
             .with_root_certificates(roots)
             .with_no_client_auth();
         self.apply_client_alpn(&mut cfg);
@@ -155,7 +177,8 @@ impl LabTlsMaterial {
             certs.push(CertificateDer::from(self.cert_der.clone()));
         }
         let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(self.key_der.clone()));
-        let mut cfg = rustls::ServerConfig::builder()
+        let mut cfg = self
+            .server_builder()?
             .with_no_client_auth()
             .with_single_cert(certs, key)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
