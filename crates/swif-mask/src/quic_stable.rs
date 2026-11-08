@@ -212,7 +212,12 @@ pub fn is_runtime_ready() -> bool {
 }
 
 pub fn status_message() -> &'static str {
-    "quic_stable: quinn dial/accept + PrefStreamBuf; pack SQI1/quic_initial for grease; SWIF_ALLOW_QUIC_STABLE=1"
+    "quic_stable: quinn dial/accept + PrefStreamBuf; pack SQI1/quic_initial for grease; forge_ready=false (0.5)"
+}
+
+/// Honest: forged browser Initial inject into quinn handshake is not wired.
+pub fn forge_ready() -> bool {
+    false
 }
 
 pub fn lab_allowed() -> bool {

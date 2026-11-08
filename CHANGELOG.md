@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.5.0-wip
+
+Toward mass-client DPI cover (dual-stack still required):
+
+- Crafted TLS ClientHello encoder (`tls_ch_wire`) with pack extension order + `swif-pack ja3`
+- Status remains `tls_extension_order_ready=false` until craft dial replaces rustls CH
+- QUIC `forge_ready=false` + inject helper scaffold (`SWIF_QUIC_FORGE_INJECT`)
+- Property corpus `swif-crypto/tests/fuzz_like.rs`
+- `scripts/sbom.ps1` CycloneDX-ish from cargo metadata
+- `prod_gate=0.5.0-wip`
+
 ## 0.4.0
 
 Mass-client **production** gate for protocol + core (SwifTun):

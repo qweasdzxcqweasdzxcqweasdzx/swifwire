@@ -41,10 +41,36 @@ Linux: `scripts/prod-gate.sh` mirrors cargo test + notes Win-only smokes.
 - [x] prod-gate expands cover-probe
 - [x] HARDENING WP0 table; CHANGELOG; tag `v0.4.0`
 
-## Residuals → 0.5
+## Residuals → 0.5 (frozen list from 0.4)
 
 1. Full JA3/JA4 extension order (dual TLS / craftls backport)
 2. Quinn forged Initial from capture
 3. UniFFI AAR/XCFramework ship
 4. SBOM + Windows Authenticode
 5. Continuous fuzzing
+
+## `v0.5.0` — cover-grade + mobile ship (in progress)
+
+Gate: `prod-gate.ps1` + `swif-pack ja3` + `scripts/sbom.ps1`.
+
+### A. TLS / JA3
+- [x] Pack-driven ClientHello **wire encoder** (`tls_ch_wire`) + JA3 lab digests
+- [ ] Live dial uses crafted CH (`tls_extension_order_ready=true`)
+- [ ] JA4_a/b against browser capture corpus
+
+### B. QUIC
+- [x] Honest `forge_ready=false` + opaque inject scaffold
+- [ ] Quinn accepts forged Initial / capture replay
+
+### C. Crypto / supply chain
+- [x] Property corpus (`fuzz_like`)
+- [x] SBOM script (`scripts/sbom.ps1`)
+- [ ] cargo-fuzz CI + Authenticode optional
+
+### D. Mobile
+- [x] UDL skeleton (0.4)
+- [ ] UniFFI generate + Android AAR / iOS XCFramework CI artifacts
+
+### E. Ops
+- [ ] Cover probe timing band vs real CDN origin (optional env)
+- [ ] Tag `v0.5.0` after green gate + craft dial or documented residual freeze

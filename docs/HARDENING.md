@@ -1,4 +1,4 @@
-# Hardening gap table — toward `v0.4.0-prod`
+# Hardening gap table — toward `v0.5.0`
 
 Neutral goal: measurable cover parity, fast mask-pack swap, dual-stack migration, stable SOCKS path — **not** “unblockable TSPU/GFW”.
 
@@ -6,7 +6,7 @@ Neutral goal: measurable cover parity, fast mask-pack swap, dual-stack migration
 
 | # | Claim / need | Code (file:line) | 0.3.0 state | Residual | Target WP |
 |---|--------------|------------------|-------------|----------|-----------|
-| R1 | Chrome-like ClientHello extension order (JA3/JA4) | `tls_provider.rs` (suites/kx/sig only); `tls_fingerprint.rs:21-36` `extension_order=false`; status `lib.rs:211` | Partial FP | No rustls 0.23 API; craftls=0.22; ja-tools needs older patch | WP2 (scaffold + honest flag); full = 0.5 |
+| R1 | Chrome-like ClientHello extension order (JA3/JA4) | `tls_ch_wire.rs` craft encoder; dial still rustls; status `tls_extension_order_ready=false` | Craft JA3 lab | Live craft dial not wired | 0.5 dial |
 | R2 | Quinn forged Initial | `quic_initial.rs` SQI1; `quic_stable.rs` quinn dial | Grease/DCID policy only | No byte-perfect Initial inject into quinn | WP4 residual; 0.5 |
 | R3 | Host **executes** legacy URI | `swifwire.h:36` alloc; `lib.rs:220` getter; status hint | Hint only | No reference host dialer | WP5 |
 | R4 | Dual-stack beside xray | docs only; edge sidecar | Docs thin | No systemd/panel contract pack | WP7 |
@@ -37,3 +37,4 @@ Neutral goal: measurable cover parity, fast mask-pack swap, dual-stack migration
 |-----|--------|
 | 0.3.0-prod | test gate, swif-pack, legacy hint ABI, quinn lab |
 | 0.4.0 | WP0–WP8: vectors/CRYPTO; PEM+cover hard; cover-probe; DialPolicy; legacy host; UniFFI skeleton; dual-stack docs; metrics; gate |
+| 0.5.0-wip | tls_ch_wire + swif-pack ja3; fuzz_like; sbom.ps1; quic forge scaffold; prod_gate wip |

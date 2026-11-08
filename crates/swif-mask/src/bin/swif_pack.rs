@@ -6,7 +6,8 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use swif_crypto::PackSigningKey;
 use swif_mask::{
-    client_hello_intent_json, sign_pack_value, verify_and_load, QuicInitialTemplate, QuicStableHints,
+    build_client_hello_record, client_hello_intent_json, ja3_hash_from_record,
+    ja3_string_from_record, sign_pack_value, verify_and_load, QuicInitialTemplate, QuicStableHints,
     TlsPackHints,
 };
 
@@ -59,6 +60,15 @@ enum Cmd {
         dcid_len: u8,
         #[arg(long, default_value_t = 0)]
         scid_len: u8,
+    },
+    /// Build crafted ClientHello (pack extension order) and print JA3 lab digests.
+    Ja3 {
+        #[arg(long, default_value = "packs/example-pack.dev.json")]
+        pack: PathBuf,
+        #[arg(long, default_value = "tls13_stable")]
+        profile: String,
+        #[arg(long, default_value = "cdn.example.com")]
+        sni: String,
     },
 }
 
@@ -135,6 +145,25 @@ fn run(args: Args) -> anyhow::Result<()> {
                 "quic_initial_template={} alpn={:?}",
                 q.has_initial_template, q.alpn
             );
+        }
+        Cmd::Ja3 { pack, profile, sni } => {
+            let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&pack)?)?;
+            let profiles = v["profiles"]
+                .as_array()
+                .ok_or_else(|| anyhow::anyhow!("no profiles"))?;
+            let p = profiles
+                .iter()
+                .find(|x| x["id"].as_str() == Some(profile.as_str()))
+                .ok_or_else(|| anyhow::anyhow!("profile not found"))?;
+            let mp: swif_mask::MaskProfile = serde_json::from_value(p.clone())?;
+            let hints = TlsPackHints::from_mask_profile(&mp);
+            let rec = build_client_hello_record(&hints, &sni);
+            let ja3 = ja3_string_from_record(&rec).ok_or_else(|| anyhow::anyhow!("ja3 parse"))?;
+            let hash = ja3_hash_from_record(&rec).unwrap();
+            println!("ja3_string={ja3}");
+            println!("ja3_sha256={hash}");
+            println!("ch_record_hex={}", hex::encode(&rec));
+            println!("note=craft_encoder_only; dial_tls still rustls (extension_order=false)");
         }
         Cmd::Sqi1 {
             version,

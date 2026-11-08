@@ -184,7 +184,36 @@ impl QuicInitialTemplate {
             "grease_versions": self.grease_versions,
             "pad_hint": self.pad_hint,
             "has_opaque": self.has_opaque,
+            "forge_ready": self.forge_ready(),
         })
+    }
+
+    /// Byte-perfect Initial inject into quinn is **not** ready.
+    /// Opaque capture may be present for policy; dial still uses quinn's own Initial.
+    pub fn forge_ready(&self) -> bool {
+        let _ = self;
+        false
+    }
+
+    /// Lab helper: raw UDP payload to send **before** quinn dial when ops capture a full Initial.
+    /// Only returns capture bytes that are **not** SQI1 policy blobs (those are templates, not wire).
+    pub fn forge_inject_datagram(&self) -> Option<&[u8]> {
+        if !std::env::var("SWIF_QUIC_FORGE_INJECT")
+            .ok()
+            .as_deref()
+            .map(|v| v == "1")
+            .unwrap_or(false)
+        {
+            return None;
+        }
+        if self.opaque.is_empty() || Self::parse_sqi1(&self.opaque).is_some() {
+            return None;
+        }
+        // Long-header QUIC: first byte 0b11xxxxxx roughly; require min size.
+        if self.opaque.len() < 20 {
+            return None;
+        }
+        Some(&self.opaque)
     }
 }
 

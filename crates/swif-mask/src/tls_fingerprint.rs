@@ -87,7 +87,10 @@ pub fn client_hello_intent(hints: &TlsPackHints) -> Value {
             "grease_flag": budget.grease_flag,
             "extension_order": budget.extension_order,
         },
+        "craft_encoder": true,
+        "craft_dial_wired": false,
         "status": fingerprint_status_message(),
+        "craft_status": crate::tls_ch_wire::craft_status_message(),
     })
 }
 

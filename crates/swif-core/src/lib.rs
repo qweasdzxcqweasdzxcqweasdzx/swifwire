@@ -208,9 +208,9 @@ pub fn core_start(config_json: &str) -> Result<CoreHandle, CoreError> {
                 bytes_down: 0,
                 last_error: None,
                 legacy_fallback_hint: legacy,
-                tls_extension_order_ready: false,
+                tls_extension_order_ready: swif_mask::tls_extension_order_ready(),
                 quic_stable_runtime_ready: swif_mask::quic_stable_ready(),
-                prod_gate: "0.4.0-prod".into(),
+                prod_gate: "0.5.0-wip".into(),
             },
         }),
     })
@@ -453,7 +453,7 @@ mod tests {
         assert_eq!(st.legacy_fallback_hint.as_deref(), Some("vless://example"));
         assert!(st.quic_stable_runtime_ready);
         assert!(!st.tls_extension_order_ready);
-        assert_eq!(st.prod_gate, "0.4.0-prod");
+        assert_eq!(st.prod_gate, "0.5.0-wip");
         core_stop(h);
     }
 
