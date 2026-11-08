@@ -5,8 +5,9 @@
 //! (same pref framing as TCP masks — [`PrefStreamBuf`] / `read_pref`/`write_pref`).
 //!
 //! ## Status
-//! Quinn dial/accept is wired for lab (`SWIF_ALLOW_QUIC_STABLE=1`). Pack Initial
-//! template mimicry is still open; ALPN/SNI come from [`QuicStableHints`].
+//! Quinn dial/accept is wired for lab (`SWIF_ALLOW_QUIC_STABLE=1`). Pack
+//! [`QuicInitialTemplate`] drives grease/DCID policy for lab cover and is
+//! retained on hints for future forged-Initial work.
 
 use std::io;
 use std::net::SocketAddr;
@@ -21,6 +22,7 @@ use rustls::{ClientConfig as RustlsClientConfig, DigitallySignedStruct, Error as
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::pack::MaskProfile;
+use crate::quic_initial::QuicInitialTemplate;
 use crate::tls13::{LabTlsMaterial, TlsVerifyMode};
 use crate::tls_provider::provider_for_profile;
 
@@ -34,6 +36,7 @@ pub struct QuicStableHints {
     pub alpn: Vec<String>,
     pub sni_pool_ref: Option<String>,
     pub has_initial_template: bool,
+    pub initial: QuicInitialTemplate,
 }
 
 impl Default for QuicStableHints {
@@ -42,6 +45,7 @@ impl Default for QuicStableHints {
             alpn: vec!["h3".into()],
             sni_pool_ref: None,
             has_initial_template: false,
+            initial: QuicInitialTemplate::default(),
         }
     }
 }
@@ -49,13 +53,15 @@ impl Default for QuicStableHints {
 impl QuicStableHints {
     pub fn from_mask_profile(p: &MaskProfile) -> Self {
         let mut h = Self::default();
-        if let Some(b64) = p
-            .templates
-            .get("quic_initial_b64")
-            .and_then(|v| v.as_str())
-        {
-            h.has_initial_template = !b64.is_empty();
-        }
+        h.initial = QuicInitialTemplate::from_mask_profile(p);
+        h.has_initial_template = h.initial.has_opaque
+            || p.templates.get("quic_initial").is_some()
+            || p
+                .templates
+                .get("quic_initial_b64")
+                .and_then(|v| v.as_str())
+                .map(|s| !s.is_empty())
+                .unwrap_or(false);
         if let Some(cover) = &p.cover {
             if let Some(arr) = cover.get("alpn").and_then(|v| v.as_array()) {
                 let list: Vec<String> = arr
@@ -206,7 +212,7 @@ pub fn is_runtime_ready() -> bool {
 }
 
 pub fn status_message() -> &'static str {
-    "quic_stable: quinn dial/accept + PrefStreamBuf on bi-stream; set SWIF_ALLOW_QUIC_STABLE=1 (lab)"
+    "quic_stable: quinn dial/accept + PrefStreamBuf; pack SQI1/quic_initial for grease; SWIF_ALLOW_QUIC_STABLE=1"
 }
 
 pub fn lab_allowed() -> bool {

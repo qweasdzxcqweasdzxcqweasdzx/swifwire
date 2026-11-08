@@ -161,9 +161,9 @@ SwifWire **не** исполняет его: при исчерпании dial re
 
 Pack: `templates.client_hello_profile` (`chrome_stable` / `firefox_stable` / `rustls_default`) + `alpn` применяются через rustls ALPN. Полный JA3/uTLS ещё не закрыт.
 
-`quic_stable` — quinn dial/accept + pref bi-stream; lab gate `SWIF_ALLOW_QUIC_STABLE=1` / `SWIF_LAB=1`. Pack Initial templates still open. Thin UDP lab = `quic_lab` / `quic_fast` + `SWIF_ALLOW_QUIC_LAB`.
+`quic_stable` — quinn dial/accept + pref bi-stream; lab gate `SWIF_ALLOW_QUIC_STABLE=1` / `SWIF_LAB=1`. Pack `templates.quic_initial` / SQI1 b64 drives grease+DCID policy (lab cover); forged Quinn Initial still open. Thin UDP lab = `quic_lab` / `quic_fast` + `SWIF_ALLOW_QUIC_LAB`.
 
-TLS FP: suite/kx/sig/ALPN via CryptoProvider; extension order still rustls-randomized (see `FingerprintBudget`).
+TLS FP: suite/kx/sig/ALPN via CryptoProvider; extension order still rustls-randomized (`FingerprintBudget`, `client_hello_intent`). craftls (rustls 0.22) not patched into 0.23/quinn stack.
 
 ## 11. Частые ошибки
 

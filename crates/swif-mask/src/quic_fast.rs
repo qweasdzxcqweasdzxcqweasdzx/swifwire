@@ -1,18 +1,23 @@
 //! `quic_fast` / **`quic_lab`** — thin UDP long-header cover (lab only).
 //!
-//! WP3: grease DCID/version randomization. Full `quic_stable` (quinn/pack Initial)
-//! is a separate profile — see `quic_stable.rs`.
+//! WP3: grease DCID/version randomization. Pack [`QuicInitialTemplate`] can
+//! override grease pool + SCID len. Full `quic_stable` (quinn) — see `quic_stable.rs`.
 
 use std::net::SocketAddr;
 
 use rand::RngCore;
 use tokio::net::UdpSocket;
 
+use crate::quic_initial::QuicInitialTemplate;
+
 /// Legacy fixed version (still accepted on unwrap for old peers).
 pub const COVER_VERSION: u32 = 0x0000_0001;
 pub const DCID_LEN: usize = 8;
 
-fn grease_version() -> u32 {
+fn grease_version_with(tmpl: Option<&QuicInitialTemplate>) -> u32 {
+    if let Some(t) = tmpl {
+        return t.pick_grease_version();
+    }
     // Mix fixed lab version with grease-like values (low entropy, not Chrome FP).
     const CANDIDATES: [u32; 5] = [
         COVER_VERSION,
@@ -27,15 +32,37 @@ fn grease_version() -> u32 {
 
 /// Build one UDP datagram: long-header-ish cover + payload (variable DCID 4..=16).
 pub fn wrap_payload(dcid: &[u8], payload: &[u8]) -> Vec<u8> {
-    let dcid_len = dcid.len().clamp(4, 16);
-    let mut out = Vec::with_capacity(1 + 4 + 1 + dcid_len + 1 + payload.len());
+    wrap_payload_with(dcid, payload, None)
+}
+
+/// Like [`wrap_payload`], applying pack Initial template grease / SCID len.
+pub fn wrap_payload_with(
+    dcid: &[u8],
+    payload: &[u8],
+    tmpl: Option<&QuicInitialTemplate>,
+) -> Vec<u8> {
+    let dcid_len = dcid.len().clamp(4, 20);
+    let scid_len = tmpl.map(|t| t.scid_len.min(20) as usize).unwrap_or(0);
+    let pad = tmpl.map(|t| t.pad_hint as usize).unwrap_or(0);
+    let mut out =
+        Vec::with_capacity(1 + 4 + 1 + dcid_len + 1 + scid_len + payload.len() + pad);
     let form = 0xC0u8 | (rand::random::<u8>() & 0x0F); // long header + grease low bits
     out.push(form);
-    out.extend_from_slice(&grease_version().to_be_bytes());
+    out.extend_from_slice(&grease_version_with(tmpl).to_be_bytes());
     out.push(dcid_len as u8);
     out.extend_from_slice(&dcid[..dcid_len]);
-    out.push(0); // scid len = 0
+    out.push(scid_len as u8);
+    if scid_len > 0 {
+        let mut scid = vec![0u8; scid_len];
+        rand::thread_rng().fill_bytes(&mut scid);
+        out.extend_from_slice(&scid);
+    }
     out.extend_from_slice(payload);
+    if pad > 0 {
+        let mut p = vec![0u8; pad];
+        rand::thread_rng().fill_bytes(&mut p);
+        out.extend_from_slice(&p);
+    }
     out
 }
 
@@ -82,10 +109,18 @@ pub fn encode_pref_datagram(dcid: &[u8; DCID_LEN], msg: &[u8]) -> Vec<u8> {
 }
 
 pub fn encode_pref_datagram_slice(dcid: &[u8], msg: &[u8]) -> Vec<u8> {
+    encode_pref_datagram_slice_with(dcid, msg, None)
+}
+
+pub fn encode_pref_datagram_slice_with(
+    dcid: &[u8],
+    msg: &[u8],
+    tmpl: Option<&QuicInitialTemplate>,
+) -> Vec<u8> {
     let mut inner = Vec::with_capacity(4 + msg.len());
     inner.extend_from_slice(&(msg.len() as u32).to_be_bytes());
     inner.extend_from_slice(msg);
-    wrap_payload(dcid, &inner)
+    wrap_payload_with(dcid, &inner, tmpl)
 }
 
 pub fn decode_pref_datagram(pkt: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
@@ -152,5 +187,25 @@ mod tests {
         let (id2, msg) = decode_pref_datagram(&pkt).unwrap();
         assert_eq!(&id[..], &id2[..]);
         assert_eq!(msg, b"x");
+    }
+
+    #[test]
+    fn pack_template_scid_and_pad() {
+        let tmpl = QuicInitialTemplate {
+            version: 1,
+            dcid_len: 8,
+            scid_len: 4,
+            grease_versions: vec![0xface_b001],
+            pad_hint: 16,
+            has_opaque: false,
+            opaque: vec![],
+        };
+        let id = tmpl.random_dcid();
+        let pkt = encode_pref_datagram_slice_with(&id, b"hello", Some(&tmpl));
+        let (id2, msg) = decode_pref_datagram(&pkt).unwrap();
+        assert_eq!(id, id2);
+        assert_eq!(msg, b"hello");
+        // long-header + version + lens + dcid + scid + pref + pad
+        assert!(pkt.len() > 1 + 4 + 1 + id.len() + 1 + 4 + 4 + 5);
     }
 }

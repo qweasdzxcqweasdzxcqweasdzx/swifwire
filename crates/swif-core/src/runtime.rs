@@ -11,6 +11,13 @@ use swif_mask::{
     dial_quic_stable, dial_tls_verify, parse_tls_verify, read_pref, write_pref, LabTlsMaterial,
     MaskDial, NullTcp, QuicStableHints, TlsPackHints, TlsVerifyMode,
 };
+
+/// Pack-driven underlay hints applied at runtime spawn / hot-restart.
+#[derive(Clone, Default)]
+pub struct RuntimeHints {
+    pub tls: TlsPackHints,
+    pub quic: QuicStableHints,
+}
 use swif_mux::Mux;
 use swif_session::{client_finish_keys, client_hello_inner, SessionTransport};
 use swif_shape::{Shaper, ShaperProfile};
@@ -33,10 +40,10 @@ pub struct RuntimeEngine {
 impl RuntimeEngine {
     #[allow(dead_code)]
     pub fn spawn(outbound: Outbound) -> Result<Self, CoreError> {
-        Self::spawn_with_hints(outbound, TlsPackHints::default())
+        Self::spawn_with_hints(outbound, RuntimeHints::default())
     }
 
-    pub fn spawn_with_hints(outbound: Outbound, hints: TlsPackHints) -> Result<Self, CoreError> {
+    pub fn spawn_with_hints(outbound: Outbound, hints: RuntimeHints) -> Result<Self, CoreError> {
         let stop = Arc::new(AtomicBool::new(false));
         let stop2 = stop.clone();
         let join = thread::Builder::new()
@@ -106,7 +113,7 @@ fn load_tls_material(path: &str) -> Result<LabTlsMaterial, CoreError> {
 
 async fn run_socks_loop(
     outbound: Outbound,
-    hints: TlsPackHints,
+    hints: RuntimeHints,
     stop: Arc<AtomicBool>,
 ) -> Result<(), CoreError> {
     let socks: SocketAddr = outbound
@@ -123,13 +130,14 @@ async fn run_socks_loop(
     let pubk = parse_pub(&outbound.settings.server_pub_hex)?;
     let mut mask = outbound.settings.mask.clone();
     let verify = parse_tls_verify(&outbound.settings.tls_verify).unwrap_or(TlsVerifyMode::Pin);
+    let quic_hints = hints.quic.clone();
     let tls = if mask == "tls13_stable" || mask == "quic_stable" {
         let path = outbound
             .settings
             .tls_material_path
             .clone()
             .unwrap_or_else(|| "lab-cert.der.json".into());
-        Some(load_tls_material(&path)?.with_hints(hints))
+        Some(load_tls_material(&path)?.with_hints(hints.tls))
     } else {
         None
     };
@@ -181,10 +189,20 @@ async fn run_socks_loop(
         }
         let mask = mask.clone();
         let tls = tls.clone();
+        let quic_hints = quic_hints.clone();
         let policy = policy.clone();
         tokio::spawn(async move {
-            if let Err(e) =
-                handle_one(sock, server, pubk, &mask, tls.as_ref(), verify, policy).await
+            if let Err(e) = handle_one(
+                sock,
+                server,
+                pubk,
+                &mask,
+                tls.as_ref(),
+                verify,
+                policy,
+                quic_hints,
+            )
+            .await
             {
                 warn!("proxy: {e:#}");
             }
@@ -216,6 +234,7 @@ async fn handle_one(
     tls: Option<&LabTlsMaterial>,
     verify: TlsVerifyMode,
     policy: Arc<Mutex<DialPolicy>>,
+    quic_hints: QuicStableHints,
 ) -> anyhow::Result<()> {
     let (host, port) = socks_handshake(&mut local).await?;
     let target = format!("{host}:{port}");
@@ -264,7 +283,7 @@ async fn handle_one(
         }
         "quic_stable" => {
             let material = tls.ok_or_else(|| anyhow::anyhow!("tls material missing"))?;
-            let client = dial_quic_stable(server, material, &QuicStableHints::default(), verify).await?;
+            let client = dial_quic_stable(server, material, &quic_hints, verify).await?;
             {
                 let mut p = policy.lock().await;
                 p.on_success();

@@ -29,8 +29,10 @@ See [HARDENING.md](HARDENING.md). Neutral goal: swappable mask + measurable cove
 - [x] `quic_stable` `PrefStreamBuf` / `encode_pref_record` stream framing bridge
 - [x] Quinn dial/accept + edge/cli/core lab path (`SWIF_ALLOW_QUIC_STABLE` / `SWIF_LAB`)
 - [x] Partial TLS FP: suite/kx/sig preference + documented extension-order budget
-- [ ] Full browser ClientHello FP (extension order / craftls|uTLS) — remaining
-- [ ] Pack QUIC Initial template mimicry — remaining
+- [x] Pack `quic_initial` / SQI1 template parse + lab cover apply + core hot-hints
+- [x] `client_hello_intent` JSON for pack/agent validation
+- [ ] Full browser ClientHello FP (extension order; craftls 0.22 ≠ rustls 0.23) — remaining
+- [ ] Quinn forged Initial from opaque capture — remaining
 - [ ] cargo test + smoke-all green on release branch
 
 ## Tag (when harden DoD closed)

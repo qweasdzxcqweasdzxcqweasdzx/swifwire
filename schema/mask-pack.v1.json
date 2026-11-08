@@ -53,7 +53,24 @@
               "alpn": { "type": "array", "items": { "type": "string" } },
               "grease": { "type": "boolean", "default": true },
               "record_size_hint": { "type": "integer" },
-              "quic_initial_b64": { "type": "string" },
+              "quic_initial": {
+                "type": "object",
+                "description": "Structured QUIC Initial policy (SQI1 fields)",
+                "properties": {
+                  "version": { "type": "integer" },
+                  "dcid_len": { "type": "integer", "minimum": 4, "maximum": 20 },
+                  "scid_len": { "type": "integer", "minimum": 0, "maximum": 20 },
+                  "grease_versions": {
+                    "type": "array",
+                    "items": { "type": "integer" }
+                  },
+                  "pad_hint": { "type": "integer", "minimum": 0 }
+                }
+              },
+              "quic_initial_b64": {
+                "type": "string",
+                "description": "Opaque SQI1 or capture blob; SQI1 overrides quic_initial JSON"
+              },
               "sni_pool_ref": { "type": "string" }
             }
           },

@@ -45,5 +45,6 @@ Goal language: measurable cover / probe-resistance, swappable masks — **not** 
 | 0.2.x proto-4 | CryptoProvider suite/kx order; session rekey+key_phase; CONTROL_EARLY; ticket replay window |
 | 0.2.x proto-5 | Edge replay + REKEY runtime; pack hints hot-apply; `PrefStreamBuf` for quic_stable stream 0 |
 | 0.2.x proto-6 | Quinn `quic_stable` lab runtime; sig-scheme FP; DialPolicy quic_stable fallback |
+| 0.2.x proto-7 | Pack SQI1/`quic_initial`; RuntimeHints; client_hello_intent JSON |
 
-**Still open:** full JA3/JA4 uTLS (extension order / craftls); pack QUIC Initial templates; host-app legacy dialer.
+**Still open:** full JA3/JA4 uTLS (craftls stuck on rustls 0.22); forged QUIC Initial on quinn; host-app legacy dialer.

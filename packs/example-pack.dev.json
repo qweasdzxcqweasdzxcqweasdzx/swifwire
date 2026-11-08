@@ -65,8 +65,15 @@
         "min_pad": 16
       },
       "templates": {
+        "quic_initial": {
+          "version": 1,
+          "dcid_len": 8,
+          "scid_len": 0,
+          "grease_versions": [1, 1798528765, 4207865857],
+          "pad_hint": 0
+        },
         "quic_initial_b64": null,
-        "note": "Scaffold only — runtime not ready until quinn path ships"
+        "note": "quic_stable quinn lab ready; SQI1 b64 optional for opaque Initial capture"
       },
       "cover": {
         "sni_pool_ref": "pool.quic.v1",

@@ -131,6 +131,7 @@ struct CoreInner {
     outbound: Outbound,
     pack: Option<MaskPack>,
     tls_hints: swif_mask::TlsPackHints,
+    quic_hints: swif_mask::QuicStableHints,
     policy: DialPolicy,
     status: CoreStatus,
     engine: Option<RuntimeEngine>,
@@ -154,10 +155,14 @@ pub fn core_start(config_json: &str) -> Result<CoreHandle, CoreError> {
     let route_mode = config.route_mode.clone();
     let start_rt = config.start_runtime;
     let tls_hints = swif_mask::TlsPackHints::default();
+    let quic_hints = swif_mask::QuicStableHints::default();
     let engine = if start_rt {
         Some(RuntimeEngine::spawn_with_hints(
             outbound.clone(),
-            tls_hints.clone(),
+            crate::runtime::RuntimeHints {
+                tls: tls_hints.clone(),
+                quic: quic_hints.clone(),
+            },
         )?)
     } else {
         None
@@ -173,6 +178,7 @@ pub fn core_start(config_json: &str) -> Result<CoreHandle, CoreError> {
             outbound,
             pack: None,
             tls_hints,
+            quic_hints,
             policy: DialPolicy::default(),
             engine,
             status: CoreStatus {
@@ -260,33 +266,46 @@ pub fn core_apply_mask_pack(handle: &CoreHandle, bytes: &[u8]) -> Result<(), Cor
     let vk = PackVerifyingKey::from_bytes(arr).map_err(|e| CoreError::Pack(e.to_string()))?;
     let pack = verify_and_load(bytes, &vk).map_err(|e| CoreError::Pack(e.to_string()))?;
     g.status.pack_id = Some(pack.pack_id.clone());
+    let preferred = g.outbound.settings.mask.clone();
     let prof = pack
-        .profile("tls13_stable")
+        .profile(&preferred)
         .ok()
+        .or_else(|| pack.profile("tls13_stable").ok())
+        .or_else(|| pack.profile("quic_stable").ok())
         .or_else(|| pack.profiles.first());
     if let Some(p) = prof {
         g.status.mask = p.id.clone();
         g.outbound.settings.mask = p.id.clone();
         g.policy.on_mask_offer(&p.id);
         let hints = swif_mask::TlsPackHints::from_mask_profile(p);
+        let qhints = swif_mask::QuicStableHints::from_mask_profile(p);
         tracing::info!(
-            "mask pack {} profile={} hello={}",
+            "mask pack {} profile={} hello={} quic_initial={}",
             pack.pack_id,
             p.id,
-            hints.profile.as_str()
+            hints.profile.as_str(),
+            qhints.has_initial_template
+        );
+        tracing::debug!(
+            "client_hello_intent={}",
+            swif_mask::client_hello_intent_json(&hints)
         );
         g.tls_hints = hints;
+        g.quic_hints = qhints;
     }
     g.pack = Some(pack);
     g.status.state = "pack_applied".into();
-    // Hot-apply: restart runtime with new TLS hints if it was running.
+    // Hot-apply: restart runtime with new pack hints if it was running.
     if g.engine.is_some() {
         if let Some(eng) = g.engine.take() {
             eng.shutdown();
         }
         g.engine = Some(crate::runtime::RuntimeEngine::spawn_with_hints(
             g.outbound.clone(),
-            g.tls_hints.clone(),
+            crate::runtime::RuntimeHints {
+                tls: g.tls_hints.clone(),
+                quic: g.quic_hints.clone(),
+            },
         )?);
         g.status.state = "pack_applied_restarted".into();
     }

@@ -5,6 +5,7 @@ mod io;
 mod pack;
 mod probe;
 mod quic_fast;
+mod quic_initial;
 mod quic_stable;
 mod tls13;
 mod tls_fingerprint;
@@ -20,9 +21,11 @@ pub use pack::{
     sign_pack_value, verify_and_load, MaskPack, MaskProfile, PackError, PackSignature,
 };
 pub use quic_fast::{
-    decode_pref_datagram, encode_pref_datagram, encode_pref_datagram_slice, random_dcid,
-    random_dcid_var, unwrap_payload, wrap_payload, QuicFastClient, COVER_VERSION, DCID_LEN,
+    decode_pref_datagram, encode_pref_datagram, encode_pref_datagram_slice,
+    encode_pref_datagram_slice_with, random_dcid, random_dcid_var, unwrap_payload, wrap_payload,
+    wrap_payload_with, QuicFastClient, COVER_VERSION, DCID_LEN,
 };
+pub use quic_initial::QuicInitialTemplate;
 pub use quic_stable::{
     accept_bi as quic_stable_accept_bi, bind_server as quic_stable_bind_server,
     dial as dial_quic_stable, encode_pref_record as quic_stable_encode_pref,
@@ -32,7 +35,8 @@ pub use quic_stable::{
     MAX_PREF_RECORD as QUIC_STABLE_MAX_PREF,
 };
 pub use tls_fingerprint::{
-    fingerprint_status_message, intended_extension_order, FingerprintBudget,
+    client_hello_intent, client_hello_intent_json, fingerprint_status_message,
+    intended_extension_order, FingerprintBudget,
 };
 pub use tls_profile::{ClientHelloProfile, TlsPackHints};
 pub use tls_provider::{provider_for_profile, suite_order_ids};

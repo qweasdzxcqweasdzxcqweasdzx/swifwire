@@ -3,8 +3,14 @@
 //! rustls randomizes extension *positions* and does **not** expose fixed browser
 //! extension order (no JA3/JA4 clone). Pack profiles still document the intended
 //! order for agents / future craftls-class stacks.
+//!
+//! Note: upstream `craftls` tracks rustls **0.22** and cannot patch our 0.23 +
+//! quinn stack today without a dual-TLS split.
 
-use crate::tls_profile::ClientHelloProfile;
+use serde_json::{json, Value};
+
+use crate::tls_profile::{ClientHelloProfile, TlsPackHints};
+use crate::tls_provider::suite_order_ids;
 
 /// What SwifWire controls today vs what needs a uTLS-class stack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,6 +19,7 @@ pub struct FingerprintBudget {
     pub kx_groups: bool,
     pub signature_schemes: bool,
     pub alpn: bool,
+    pub grease_flag: bool,
     /// Fixed browser extension order — **false** on rustls.
     pub extension_order: bool,
 }
@@ -23,6 +30,7 @@ impl FingerprintBudget {
         kx_groups: true,
         signature_schemes: true,
         alpn: true,
+        grease_flag: true,
         extension_order: false,
     };
 }
@@ -30,8 +38,6 @@ impl FingerprintBudget {
 /// Intended TLS extension type ids (IANA) for a browser-like ClientHello.
 /// Not applied by rustls; consumed by docs / future binders.
 pub fn intended_extension_order(profile: ClientHelloProfile) -> &'static [u16] {
-    // Common Chrome-ish order (approx): SNI, ESNI/ECH omit, status_request, supported_groups,
-    // ec_point_formats, signature_algorithms, ALPN, key_share, supported_versions, …
     match profile {
         ClientHelloProfile::ChromeStable => &[
             0x0000, // server_name
@@ -59,7 +65,34 @@ pub fn intended_extension_order(profile: ClientHelloProfile) -> &'static [u16] {
 }
 
 pub fn fingerprint_status_message() -> &'static str {
-    "TLS FP: suite/kx/sig/ALPN via CryptoProvider; extension order still rustls-randomized (need craftls/uTLS for JA3/JA4)"
+    "TLS FP: suite/kx/sig/ALPN via CryptoProvider; extension order still rustls-randomized (craftls 0.22 incompatible with rustls 0.23/quinn)"
+}
+
+/// Machine-readable ClientHello *intent* for pack validation / LLM agents.
+/// This is **not** a captured wire ClientHello.
+pub fn client_hello_intent(hints: &TlsPackHints) -> Value {
+    let budget = FingerprintBudget::RUSTLS_PARTIAL;
+    json!({
+        "profile": hints.profile.as_str(),
+        "alpn": hints.alpn,
+        "grease": hints.grease,
+        "sni_pool_ref": hints.sni_pool_ref,
+        "cipher_suites": suite_order_ids(hints.profile),
+        "intended_extension_order_iana": intended_extension_order(hints.profile),
+        "budget": {
+            "cipher_suites": budget.cipher_suites,
+            "kx_groups": budget.kx_groups,
+            "signature_schemes": budget.signature_schemes,
+            "alpn": budget.alpn,
+            "grease_flag": budget.grease_flag,
+            "extension_order": budget.extension_order,
+        },
+        "status": fingerprint_status_message(),
+    })
+}
+
+pub fn client_hello_intent_json(hints: &TlsPackHints) -> String {
+    client_hello_intent(hints).to_string()
 }
 
 #[cfg(test)]
@@ -70,5 +103,14 @@ mod tests {
     fn chrome_has_order() {
         assert!(!intended_extension_order(ClientHelloProfile::ChromeStable).is_empty());
         assert!(!FingerprintBudget::RUSTLS_PARTIAL.extension_order);
+    }
+
+    #[test]
+    fn intent_json_has_budget() {
+        let hints = TlsPackHints::default();
+        let v = client_hello_intent(&hints);
+        assert_eq!(v["profile"], "chrome_stable");
+        assert_eq!(v["budget"]["extension_order"], false);
+        assert!(v["intended_extension_order_iana"].as_array().unwrap().len() > 5);
     }
 }

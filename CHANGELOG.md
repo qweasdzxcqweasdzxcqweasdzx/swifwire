@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Proto-7:** pack `quic_initial`/SQI1 templates; lab cover grease/SCID/pad from pack; core `RuntimeHints` (tls+quic); `client_hello_intent` dump
 - **Proto-6:** quinn `quic_stable` dial/accept + SOCKS lab path; DialPolicy prefers quic_stable over quic_lab; TLS sig-scheme preference + fingerprint budget docs; `smoke-quic-stable.ps1`
 - **Proto-5:** edge ticket replay window; REKEY ack-before-advance (edge + core pump); pack hints hot-restart; `quic_stable` PrefStreamBuf framing bridge; WIRE §4.5 ordering
 - **Proto-4:** rustls CryptoProvider cipher/kx profiles; `derive_rekey_keys` + session epoch/key_phase; CONTROL_EARLY; `TicketReplayWindow`; WIRE §3.1/§4.5–4.7

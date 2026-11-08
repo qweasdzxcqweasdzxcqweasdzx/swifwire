@@ -136,7 +136,21 @@ Pack `templates.client_hello_profile`:
 | `chrome_stable` | AES_128_GCM, CHACHA20, AES_256_GCM; X25519→P-256 | default pack intent |
 | `firefox_stable` | CHACHA20, AES_128_GCM, AES_256_GCM | |
 
-ALPN from pack. Extension order / GREASE extensions: **not** emulated (needs uTLS).
+ALPN from pack. Extension order / GREASE extensions: **not** emulated (needs uTLS/craftls on rustls≥0.23).
+
+### 3.2 Pack QUIC Initial (`quic_stable` / `quic_lab`)
+
+Structured `templates.quic_initial`:
+
+| Field | Meaning |
+|-------|---------|
+| `version` | Preferred QUIC version (0 → grease pool only) |
+| `dcid_len` | DCID length 4..=20 |
+| `scid_len` | SCID length 0..=20 (lab cover) |
+| `grease_versions` | Version candidates for long-header grease |
+| `pad_hint` | Extra UDP pad after pref payload (lab) |
+
+Optional `templates.quic_initial_b64`: base64 of **SQI1** binary (`magic=SQI1`, format=1, then fields as above). SQI1 overrides JSON when both set. Quinn path uses ALPN/SNI from cover; SQI1 drives lab cover grease until forged-Initial lands.
 
 ## 4. Handshake messages (inside mask pipe, pre-AEAD) — **SwifHS v0**
 
