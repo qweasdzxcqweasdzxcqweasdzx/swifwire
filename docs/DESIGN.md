@@ -12,7 +12,7 @@
 1. **Проблема:** прод на чужих клиентах (Happ) и чужих сигнатурах (VLESS/Reality/WS/HY2) → медленная смена облика, общий fingerprint экосистемы.
 2. **Решение:** своё ядро **SwifCore** + wire **SwifWire v0** с жёстким разделением **Mask ∥ Session**. Маска — сменный «облик» (TLS-like / QUIC-like); сессия — наш AEAD + mux + datagram.
 3. **Default runtime:** **Rust** (один код → FFI на mobile/desktop). UI нативный; ядро — library + tun worker.
-4. **Crypto default:** X25519 + HKDF-SHA256 + ChaCha20-Poly1305 (AES-GCM как optional HW path). Handshake внутри маски: **Noise_IK**-подобный 1-RTT с ticket resume; 0-RTT только для replay-safe idempotent control, не для туннеля данных на MVP.
+4. **Crypto default:** X25519 + HKDF-SHA256 + ChaCha20-Poly1305 (AES-GCM как optional HW path). Handshake внутри маски: **SwifHS v0** (1-RTT, не Noise_IK/`snow`) с ticket resume; 0-RTT только для replay-safe idempotent control, не для туннеля данных. См. `docs/CRYPTO.md` / WIRE §4.
 5. **Anti-probe:** невалидный handshake → **transparent mirror** на реальный cover origin (своя схема, не fork Reality constants). Сканер видит cover; клиент с ключом — session.
 6. **Agility:** mask packs + feature flags доставляются с control plane, подпись ed25519, hot-apply без store release.
 7. **Padding/shaping — first-class API** в каждом send path; профили задают length + timing policy.
@@ -110,7 +110,7 @@
 ├─────────────────────────────────────────────┤
 │  Session (AEAD records, rekey, tickets)     │
 ├─────────────────────────────────────────────┤
-│  Handshake / Auth (Noise_IK-like)           │
+│  Handshake / Auth (SwifHS v0, not Noise)    │
 ├─────────────────────────────────────────────┤
 │  Mask profile (TLS-like | QUIC-like | …)    │  ← hot-swappable pack
 ├─────────────────────────────────────────────┤
@@ -122,18 +122,18 @@
 
 ### C.4 Handshake (default)
 
-**Choice: Noise_IK style over established mask channel (1-RTT).**
+**Choice: SwifHS v0 over established mask channel (1-RTT).** Not Noise_IK / `snow` — see `docs/CRYPTO.md` and WIRE §4.
 
-Почему IK, не XX: клиент знает static key сервера (из подписки/нод-листа) → меньше round-trips на mobile.  
-Почему не «чистый TLS1.3»: маска уже может быть TLS-like; второй настоящий TLS избыточен и даёт двойной fingerprint. Inner — компактный Noise.
+Why client-knows-server-static: subscription carries `pub=` → fewer round-trips on mobile.  
+Why not a second real TLS1.3 inside: mask may already be TLS-like; double TLS worsens fingerprint. Inner = compact SwifHS.
 
 **Flow (logical):**
 
 1. Mask dial → bi-directional reliable byte/datagram pipe (profile-defined).
-2. Client → Server: `ClientHelloInner` = eph_pub || noise_msg || client_caps || pad  
-   AEAD ещё нет; integrity = Noise transcript.
-3. Server: если Noise fail / caps unknown → **не рвём маску**; уходим в cover mirror path (см. §C.8 / §D probe). Если OK → `ServerHelloInner` = eph_pub || noise_msg || server_caps || ticket_offer || pad.
-4. Derive: `CK, TK` via HKDF labels `swifwire/v0/key`, `swifwire/v0/ticket`.
+2. Client → Server: `ClientHelloInner` = eph_pub || proof || client_caps || pad  
+   AEAD ещё нет; integrity = SwifHS transcript.
+3. Server: если SwifHS fail / caps unknown → **не рвём маску**; уходим в cover mirror path (см. §C.8 / §D probe). Если OK → `ServerHelloInner` = eph_pub || proof || server_caps || ticket_offer || pad.
+4. Derive: session keys via `derive_session_keys` (HKDF labels in swif-crypto).
 5. First data frame only after keys installed (1-RTT).
 
 **0-RTT policy (MVP):** ticket may carry early secret for **CONTROL_EARLY** only (health, mask preference). **No TUN payload in 0-RTT.** Replay window: server-side bloom + ticket age ≤ 24h.
@@ -411,7 +411,7 @@ Config JSON: nodes, keys refs, feature flags, shaper override.
 | Topic | Default |
 |-------|---------|
 | Core language | Rust |
-| Inner HS | Noise_IK-like, 1-RTT |
+| Inner HS | SwifHS v0, 1-RTT (not Noise_IK) |
 | AEAD | ChaCha20-Poly1305 |
 | 0-RTT data | Forbidden on MVP |
 | Masks MVP | tls13_stable + quic_fast |

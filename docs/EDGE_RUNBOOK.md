@@ -28,7 +28,8 @@ Keep `server.key` offline. Distribute only `server.pub` to clients.
 | `--tls-cert` / `--tls-key` | PEM cover cert (required for prod; JSON lab material needs `SWIF_LAB=1`) |
 | `SWIF_LAB=1` | Allow self-signed JSON material + builtin HTML cover |
 
-Without cover upstream and without `SWIF_LAB`, `tls13_stable` **refuses to start**.
+Without cover upstream and without `SWIF_LAB`, `tls13_stable` **refuses to start**.  
+Prod (no `SWIF_LAB`) also requires **`--tls-cert` + `--tls-key` PEM** (JSON lab material rejected).
 
 ## Masks
 

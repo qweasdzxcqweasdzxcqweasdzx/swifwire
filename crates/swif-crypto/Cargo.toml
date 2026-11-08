@@ -3,6 +3,10 @@ name = "swif-crypto"
 version.workspace = true
 edition.workspace = true
 
+[dev-dependencies]
+serde_json = { workspace = true }
+hex = { workspace = true }
+
 [dependencies]
 swif-wire = { workspace = true }
 bytes = { workspace = true }

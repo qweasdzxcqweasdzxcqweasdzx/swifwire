@@ -1,35 +1,50 @@
 # Definition of Done
 
-## `v0.1.0-mvp` / `v0.2.0` lab (frozen)
+## `v0.3.0-prod` (frozen test gate)
 
-- [x] SOCKS via `null_tcp` / `tls13_stable` / core embed
-- [x] Ticket resume &lt;2s; packs; UDP map; NullTun; tray
-- [x] Commercial Windows pack + docs for client/server agents
+- [x] Protocol + core commercial **lab** gate (`prod-gate` / smoke-all)
+- See git tag `v0.3.0`
 
-## `v0.3.0-prod` — protocol + core ready for commercial tests
+## `v0.4.0-prod` — mass-client production (this release)
 
-Gate: `.\scripts\prod-gate.ps1` (cargo test + smoke-all).
+Gate: `.\scripts\prod-gate.ps1` (includes `prod-cover-probe.ps1`).  
+Linux: `scripts/prod-gate.sh` mirrors cargo test + notes Win-only smokes.
 
-- [x] SwifHS v0 + resume_fast/fs + replay window + REKEY
-- [x] `tls13_stable` cover mirror + PEM; `tls_verify=pin|webpki`
-- [x] `quic_stable` quinn lab path + pack SQI1/`quic_initial`
-- [x] DialPolicy + `legacy_fallback_uri` surfaced to host (`core_legacy_fallback_*`)
-- [x] Pack hot-apply (`RuntimeHints` tls+quic); `swif-pack` CLI
-- [x] C ABI v1 stable (+ legacy fallback alloc); status `prod_gate=0.3.0-prod`
-- [x] `scripts/smoke-all.ps1` green
-- [x] `scripts/prod-gate.ps1` + release-win runs gate by default
-- [x] Deploy prod examples (`deploy/client.prod.example.json`, `edge.prod.example.md`)
+### A. Protocol / crypto
+- [x] WIRE + PROTOCOL_CARD + llms synced to **SwifHS v0** (no Noise_IK-like)
+- [x] `tests/vectors/` AEAD + KDF + CRYPTO.md
+- [x] Matrix: wrong key / replay / REKEY (`prod_matrix` + handshake tests)
+- [ ] Broader fuzz corpus (0.5 stretch)
 
-### Known residuals (not blocking self-host prod tests)
+### B. TLS cover-grade
+- [x] Prod edge refuses start without `--tls-cert/--tls-key` + `--cover` (unless `SWIF_LAB=1`)
+- [x] Pack chrome/firefox profiles + ALPN/GREASE/suites/sig (extension **order** still residual)
+- [x] `prod-cover-probe.ps1` (no SWI1; timing log; auth SOCKS)
+- [ ] `tls_extension_order_ready=true` — **blocked** until uTLS/craftls≥0.23 (residual → 0.5)
+- [x] Ops: `deploy/edge.prod.example.md` + EDGE_RUNBOOK PEM/cover
 
-- [ ] Full JA3/JA4 ClientHello extension order (rustls 0.23; craftls stuck on 0.22)
-- [ ] Quinn forged Initial from opaque browser capture
-- [ ] Host app must **execute** `legacy_fallback_uri` (core only exposes hint)
-- [ ] OS TUN / App Store UI — product layer outside this gate
+### C. QUIC
+- [x] DialPolicy: tls primary; quic_stable opt-in; quic_fast=`quic_lab`
+- [x] Forged Initial residual documented (SQI1 policy only)
 
-## Tag
+### D. Core / host / mobile
+- [x] Legacy execute **contract** + `reference-host-legacy.ps1`
+- [x] Mobile FFI skeleton `ffi/swifwire.udl` + MOBILE_FFI.md
+- [x] Shaper desktop/mobile_idle already present
 
-```powershell
-.\scripts\prod-gate.ps1
-git tag -a v0.3.0 -m "SwifWire protocol+core production test gate"
-```
+### E. Dual-stack
+- [x] `docs/DUAL_STACK.md` + `deploy/swif-edge.service`
+- [x] schema inbound / share URI unchanged (panel-compatible)
+
+### F. Ops / release
+- [x] Edge metrics log (handshake_ok / cover_path / rekey_ok) — no secrets
+- [x] prod-gate expands cover-probe
+- [x] HARDENING WP0 table; CHANGELOG; tag `v0.4.0`
+
+## Residuals → 0.5
+
+1. Full JA3/JA4 extension order (dual TLS / craftls backport)
+2. Quinn forged Initial from capture
+3. UniFFI AAR/XCFramework ship
+4. SBOM + Windows Authenticode
+5. Continuous fuzzing

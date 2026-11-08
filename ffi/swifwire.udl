@@ -1,0 +1,32 @@
+// UniFFI skeleton for Android/iOS hosts (0.4). Generate bindings in 0.5 CI.
+// Maps to existing C ABI / swif-core surface — do not invent parallel semantics.
+
+namespace swifwire {
+  string version();
+  i32 abi_version();
+};
+
+interface Core {
+  [Throws=CoreError]
+  constructor(string config_json);
+
+  [Throws=CoreError]
+  void start();
+
+  void stop();
+
+  [Throws=CoreError]
+  string status_json();
+
+  [Throws=CoreError]
+  void apply_pack(bytes pack);
+
+  string? legacy_fallback_uri();
+};
+
+[Error]
+enum CoreError {
+  "InvalidConfig",
+  "Runtime",
+  "Pack",
+};

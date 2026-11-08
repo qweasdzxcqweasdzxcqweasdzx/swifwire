@@ -19,15 +19,19 @@
 ## 2. Быстрый подъём ноды
 
 ```powershell
-# Windows release unpack
-.\swif-edge.exe --listen 0.0.0.0:443 --mask tls13_stable --key server.key --pub-out server.pub --sni cdn.example.com
-# pub для клиентов:
+# Windows prod (PEM + cover required; no SWIF_LAB)
+.\swif-edge.exe --listen 0.0.0.0:443 --mask tls13_stable `
+  --key server.key --pub-out server.pub --sni cdn.example.com `
+  --tls-cert cover.crt --tls-key cover.key --cover 127.0.0.1:8443
 Get-Content server.pub
 ```
 
 ```bash
-# Linux (после сборки)
-./swif-edge --listen 0.0.0.0:443 --mask tls13_stable --key /var/lib/swif/server.key --pub-out /var/lib/swif/server.pub --sni cdn.example.com
+# Linux prod — see also deploy/swif-edge.service and docs/DUAL_STACK.md
+./swif-edge --listen 0.0.0.0:443 --mask tls13_stable \
+  --key /var/lib/swif/server.key --pub-out /var/lib/swif/server.pub \
+  --sni cdn.example.com --tls-cert /etc/swif/cover.crt --tls-key /etc/swif/cover.key \
+  --cover 127.0.0.1:8443
 ```
 
 Флаги:
@@ -39,10 +43,12 @@ Get-Content server.pub
 | `--pub-out` | `server.pub` | hex pubkey для клиентов |
 | `--mask` | `tls13_stable` | wire appearance |
 | `--sni` | `cover.local` | TLS SNI / material |
-| `--cover` | none | upstream HTTP cover host:port |
-| `--tls-material` | `lab-cert.der.json` | TLS cert/key material JSON |
+| `--cover` / `--cover-upstream` | none | upstream HTTP cover host:port (**prod required**) |
+| `--tls-cert` / `--tls-key` | none | PEM leaf/chain + PKCS8 (**prod required**) |
+| `--tls-material` | `lab-cert.der.json` | JSON lab material only with `SWIF_LAB=1` |
 
-**Lab:** `null_tcp` только с `SWIF_ALLOW_NULL=1`.
+**Prod:** без `SWIF_LAB` edge отказывается стартовать `tls13_stable` без PEM + cover.  
+**Lab:** `null_tcp` только с `SWIF_ALLOW_NULL=1`; JSON TLS material только с `SWIF_LAB=1`.
 
 ## 3. Inbound JSON (панель / агент)
 

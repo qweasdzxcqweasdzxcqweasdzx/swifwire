@@ -2,6 +2,7 @@
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
@@ -78,6 +79,24 @@ fn lab_mode() -> bool {
     std::env::var("SWIF_LAB").ok().as_deref() == Some("1")
 }
 
+#[derive(Default)]
+struct EdgeMetrics {
+    handshake_ok: AtomicU64,
+    cover_path: AtomicU64,
+    rekey_ok: AtomicU64,
+}
+
+impl EdgeMetrics {
+    fn snapshot(&self) -> String {
+        format!(
+            "handshake_ok={} cover_path={} rekey_ok={}",
+            self.handshake_ok.load(Ordering::Relaxed),
+            self.cover_path.load(Ordering::Relaxed),
+            self.rekey_ok.load(Ordering::Relaxed),
+        )
+    }
+}
+
 fn resolve_cover(args: &Args) -> Option<SocketAddr> {
     args.cover_upstream.or(args.cover)
 }
@@ -85,6 +104,10 @@ fn resolve_cover(args: &Args) -> Option<SocketAddr> {
 fn load_tls_material(args: &Args) -> Result<LabTlsMaterial> {
     if let (Some(cert), Some(key)) = (&args.tls_cert, &args.tls_key) {
         return Ok(LabTlsMaterial::from_pem_files(cert, key, &args.sni)?);
+    }
+    // Prod (no SWIF_LAB): PEM pair is mandatory — JSON lab material is not a cover-grade cert path.
+    if !lab_mode() {
+        bail!("tls13_stable prod requires --tls-cert and --tls-key PEM (set SWIF_LAB=1 for JSON/auto lab material)");
     }
     let path = &args.tls_material;
     if path.exists() {
@@ -96,12 +119,6 @@ fn load_tls_material(args: &Args) -> Result<LabTlsMaterial> {
             hints: Default::default(),
         })
     } else {
-        if !lab_mode() {
-            bail!(
-                "tls13_stable needs --tls-cert/--tls-key or existing {} (or SWIF_LAB=1 to auto-generate)",
-                path.display()
-            );
-        }
         let m = LabTlsMaterial::generate(&args.sni)?;
         let doc = serde_json::json!({
             "sni": m.server_name,
@@ -131,6 +148,7 @@ async fn session_loop<S>(
     hello: Vec<u8>,
     replay: Arc<AsyncMutex<TicketReplayWindow>>,
     mask_id: &str,
+    metrics: Option<Arc<EdgeMetrics>>,
 ) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -144,8 +162,11 @@ where
     if resumed {
         info!("ticket resume ok");
     }
+    if let Some(m) = &metrics {
+        m.handshake_ok.fetch_add(1, Ordering::Relaxed);
+    }
     write_pref(&mut client, &server_raw).await?;
-    post_handshake_loop(client, keys, mask_id).await
+    post_handshake_loop(client, keys, mask_id, metrics).await
 }
 
 async fn handle_udp_datagram<S>(
@@ -251,7 +272,7 @@ async fn handle_null(
     replay: Arc<AsyncMutex<TicketReplayWindow>>,
 ) -> Result<()> {
     let hello = read_pref(&mut client).await.context("client hello")?;
-    session_loop(client, key, hello, replay, "null_tcp").await
+    session_loop(client, key, hello, replay, "null_tcp", None).await
 }
 
 async fn handle_tls(
@@ -261,6 +282,7 @@ async fn handle_tls(
     cover: Option<SocketAddr>,
     cover_mode: CoverMode,
     replay: Arc<AsyncMutex<TicketReplayWindow>>,
+    metrics: Arc<EdgeMetrics>,
 ) -> Result<()> {
     let mut tls = accept_tls(tcp, &acceptor).await?;
     let mut lb = [0u8; 4];
@@ -282,6 +304,7 @@ async fn handle_tls(
             }
         }
         info!("probe/cover path (bad len={n}) mode={cover_mode:?}");
+        metrics.cover_path.fetch_add(1, Ordering::Relaxed);
         serve_cover(tls, &prefix, cover_mode, cover).await?;
         return Ok(());
     }
@@ -297,11 +320,13 @@ async fn handle_tls(
             if resumed {
                 info!("tls ticket resume ok");
             }
+            metrics.handshake_ok.fetch_add(1, Ordering::Relaxed);
             write_pref(&mut tls, &server_raw).await?;
-            post_handshake_loop(tls, keys, "tls13_stable").await
+            post_handshake_loop(tls, keys, "tls13_stable", Some(metrics)).await
         }
         Err(e) => {
             info!("inner auth fail → cover ({e}) mode={cover_mode:?}");
+            metrics.cover_path.fetch_add(1, Ordering::Relaxed);
             let mut prefix = Vec::with_capacity(4 + hello.len());
             prefix.extend_from_slice(&lb);
             prefix.extend_from_slice(&hello);
@@ -315,6 +340,7 @@ async fn post_handshake_loop<S>(
     mut client: S,
     keys: swif_crypto::SessionKeys,
     mask_id: &str,
+    metrics: Option<Arc<EdgeMetrics>>,
 ) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -359,6 +385,9 @@ where
                                     )
                                     .await?;
                                     sess.advance_rekey(epoch)?;
+                                    if let Some(m) = &metrics {
+                                        m.rekey_ok.fetch_add(1, Ordering::Relaxed);
+                                    }
                                     info!("rekey applied epoch={epoch}");
                                 }
                             }
@@ -418,7 +447,7 @@ async fn run_quic_stable(
             let mut stream = accepted.stream;
             if let Err(e) = async {
                 let hello = read_pref(&mut stream).await.context("quic hello")?;
-                session_loop(stream, key, hello, replay, "quic_stable").await
+                session_loop(stream, key, hello, replay, "quic_stable", None).await
             }
             .await
             {
@@ -544,19 +573,40 @@ async fn main() -> Result<()> {
         return run_quic(args.listen, key, replay).await;
     }
     if args.mask == "tls13_stable" {
+        if !lab_mode() {
+            if args.tls_cert.is_none() || args.tls_key.is_none() {
+                bail!(
+                    "prod tls13_stable requires --tls-cert and --tls-key PEM (or SWIF_LAB=1 for JSON/lab material)"
+                );
+            }
+            if resolve_cover(&args).is_none() {
+                bail!("prod tls13_stable requires --cover / --cover-upstream");
+            }
+        }
         let cover = resolve_cover(&args);
         let cover_mode = cover_mode_for(cover)?;
         let material = load_tls_material(&args)?;
         let acceptor = Arc::new(material.acceptor()?);
+        let metrics = Arc::new(EdgeMetrics::default());
         info!("tls cover_mode={cover_mode:?} upstream={cover:?}");
         let listener = TcpListener::bind(args.listen).await?;
+        let metrics_log = metrics.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                info!("metrics {}", metrics_log.snapshot());
+            }
+        });
         loop {
             let (sock, peer) = listener.accept().await?;
             let key = key.clone();
             let acceptor = acceptor.clone();
             let replay = replay.clone();
+            let metrics = metrics.clone();
             tokio::spawn(async move {
-                if let Err(e) = handle_tls(sock, key, acceptor, cover, cover_mode, replay).await {
+                if let Err(e) =
+                    handle_tls(sock, key, acceptor, cover, cover_mode, replay, metrics).await
+                {
                     error!("tls peer {peer}: {e:#}");
                 }
             });

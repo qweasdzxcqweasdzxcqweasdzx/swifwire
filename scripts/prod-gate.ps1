@@ -15,9 +15,16 @@ Write-Host "=== smoke-all ==="
 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "smoke-all.ps1")
 if ($LASTEXITCODE -ne 0) { throw "smoke-all failed" }
 
-Write-Host "=== ABI version ==="
+Write-Host "=== prod-cover-probe ==="
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "prod-cover-probe.ps1")
+if ($LASTEXITCODE -ne 0) { throw "prod-cover-probe failed" }
+
+Write-Host "=== reference-host contract ==="
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "reference-host-legacy.ps1")
+if ($LASTEXITCODE -ne 0) { throw "reference-host failed" }
+
+Write-Host "=== ABI / ffi ==="
 cargo build -p swif-ffi --quiet
-# Windows: dump export presence via dumpbin if available; else skip.
 Write-Host "swif-ffi built OK"
 
 Write-Host "PROD GATE OK"

@@ -52,3 +52,35 @@ fn matrix_handshake_rekey_resume_replay() {
     assert!(server_respond_keys_ex_replay(&server, &master, &rh, 0x07, Some(&mut win)).is_ok());
     assert!(server_respond_keys_ex_replay(&server, &master, &rh, 0x07, Some(&mut win)).is_err());
 }
+
+#[test]
+fn matrix_wrong_key_rejects_aead() {
+    let server = StaticKeypair::generate();
+    let other = StaticKeypair::generate();
+    let (cr, eph) = client_hello_inner(server.public_bytes(), 0x07);
+    let (sr, ks) = server_respond_keys(&server, &cr, 0x07).unwrap();
+    let kc = client_finish_keys(server.public_bytes(), &eph, &cr, &sr).unwrap();
+    let mut c = SessionTransport::new_client(kc, Shaper::new(ShaperProfile::desktop()));
+
+    let (cr2, _) = client_hello_inner(other.public_bytes(), 0x07);
+    let (_sr2, ks_bad) = server_respond_keys(&other, &cr2, 0x07).unwrap();
+    let mut s_bad = SessionTransport::new_server(ks_bad, Shaper::new(ShaperProfile::desktop()));
+    let wire = c.seal_frame(&bodies::stream_data(1, b"secret")).unwrap();
+    // Unrelated session keys → AEAD fail (edge maps this to cover path).
+    assert!(s_bad.open_frame(&wire).is_err());
+    let mut s_ok = SessionTransport::new_server(ks, Shaper::new(ShaperProfile::desktop()));
+    assert!(s_ok.open_frame(&wire).is_ok());
+}
+
+#[test]
+fn matrix_unknown_cap_soft() {
+    let server = StaticKeypair::generate();
+    // High bit set in caps — peer with lower offer must still complete HS (soft unknown).
+    let (cr, eph) = client_hello_inner(server.public_bytes(), 0x87);
+    let (sr, ks) = server_respond_keys(&server, &cr, 0x07).unwrap();
+    let kc = client_finish_keys(server.public_bytes(), &eph, &cr, &sr).unwrap();
+    let mut c = SessionTransport::new_client(kc, Shaper::new(ShaperProfile::desktop()));
+    let mut s = SessionTransport::new_server(ks, Shaper::new(ShaperProfile::desktop()));
+    let f = bodies::stream_data(1, b"cap");
+    assert_eq!(s.open_frame(&c.seal_frame(&f).unwrap()).unwrap().0, f);
+}

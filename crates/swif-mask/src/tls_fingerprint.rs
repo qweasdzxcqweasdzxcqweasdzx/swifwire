@@ -95,6 +95,19 @@ pub fn client_hello_intent_json(hints: &TlsPackHints) -> String {
     client_hello_intent(hints).to_string()
 }
 
+/// Partial JA3-like digest over **controlled** components only (suites + ALPN).
+/// Not a real browser JA3 — extension order is missing. For pack/ops dashboards.
+pub fn partial_ja3_label(hints: &TlsPackHints) -> String {
+    let suites = suite_order_ids(hints.profile).join("-");
+    let alpn = hints.alpn.join(",");
+    format!(
+        "swif-partial;profile={};suites={};alpn={};ext_order=rustls_random",
+        hints.profile.as_str(),
+        suites,
+        alpn
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

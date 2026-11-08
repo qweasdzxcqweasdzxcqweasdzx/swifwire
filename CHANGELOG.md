@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.4.0
+
+Mass-client **production** gate for protocol + core (SwifTun):
+
+- WP0 HARDENING gap table (file:line → residual → WP)
+- WP1: `docs/CRYPTO.md`, `tests/vectors/`, PROTOCOL_CARD/llms/WIRE SwifHS sync (drop Noise_IK-like)
+- WP2: prod edge requires PEM+cover; `prod-cover-probe.ps1`; partial JA3 label; extension_order still false
+- WP3: `deploy/swif-edge.service`, edge ops
+- WP4: DialPolicy honesty (quic_lab / quic_stable opt-in)
+- WP5: reference host legacy execute contract
+- WP6: `ffi/swifwire.udl` + MOBILE_FFI.md skeleton
+- WP7: `docs/DUAL_STACK.md` phase1/2
+- WP8: edge metrics counters; prod-gate expands; `prod-gate.sh` linux partial
+
+**Residual → 0.5:** full JA3 extension order; forged Quinn Initial; UniFFI AAR/XCFramework; SBOM/Authenticode.
+
 ## 0.3.0
 
 Production **test gate** for protocol + core (self-host commercial):

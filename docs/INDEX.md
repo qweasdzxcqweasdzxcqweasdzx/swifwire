@@ -14,7 +14,7 @@
 
 ## Продукт в одном абзаце
 
-**SwifWire** — свой транспорт: **Mask ∥ Session**. На проводе маска (`tls13_stable` / `quic_fast` / lab `null_tcp`), внутри Noise_IK-like (X25519) + ChaCha20-Poly1305 + mux. Клиент поднимает локальный **SOCKS5** и dial’ит **swif-edge**. Это **не** VLESS/VMess/WireGuard и **не** модуль внутри Xray: edge — sidecar (как MTProto в 3x-ui).
+**SwifWire** — свой транспорт: **Mask ∥ Session**. На проводе маска (`tls13_stable` / `quic_stable` lab / `quic_lab` / lab `null_tcp`), внутри **SwifHS v0** (X25519) + ChaCha20-Poly1305 + mux — **не** Noise_IK. Клиент поднимает локальный **SOCKS5** и dial’ит **swif-edge**. Это **не** VLESS/VMess/WireGuard и **не** модуль внутри Xray: edge — sidecar (как MTProto в 3x-ui).
 
 ## Артефакты репозитория
 

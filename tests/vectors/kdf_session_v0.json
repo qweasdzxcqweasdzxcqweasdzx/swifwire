@@ -1,0 +1,8 @@
+{
+  "shared_ascii": "shared-secret-32-bytes-pad!!!!!!",
+  "transcript_ascii": "transcript-fixed-bytes!!!!!!!!!!",
+  "k_c2s_hex": "74c978fce30a90652de2959261fbd553761e34b35b857ab6c106573713ffc79d",
+  "k_s2c_hex": "59515bf1e0a960fda9fe1ad63f4dc0c8942f1e9967a138862ba73a252a5f56fc",
+  "nonce_salt_c2s_hex": "e7ab1716",
+  "nonce_salt_s2c_hex": "64f42084"
+}

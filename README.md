@@ -21,8 +21,8 @@
 
 | Слой | Содержание |
 |------|------------|
-| Mask | `tls13_stable` (default), `quic_fast`, lab `null_tcp` |
-| Session | Noise_IK-like X25519 → ChaCha20-Poly1305 AEAD + mux |
+| Mask | `tls13_stable` (default), `quic_stable` (lab), `quic_lab`, lab `null_tcp` |
+| Session | **SwifHS v0** (X25519) → ChaCha20-Poly1305 AEAD + mux — not Noise_IK |
 | Клиент UX | SOCKS5 (`swif-core` / C ABI); OS TUN — optional feature |
 
 Подписка:

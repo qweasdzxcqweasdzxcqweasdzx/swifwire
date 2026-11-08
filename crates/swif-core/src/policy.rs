@@ -139,12 +139,22 @@ impl DialPolicy {
 mod tests {
     use super::*;
 
+    fn policy(lab: bool, stable: bool) -> DialPolicy {
+        DialPolicy {
+            preferred: MaskId::Tls13Stable,
+            timeouts: 0,
+            switch_after: 3,
+            backoff_ms: 0,
+            allow_quic_lab_fallback: lab,
+            allow_quic_stable_fallback: stable,
+            legacy_fallback_uri: None,
+        }
+    }
+
     #[test]
     fn stays_on_tls_without_quic_lab_flag() {
-        let mut p = DialPolicy {
-            allow_quic_lab_fallback: false,
-            ..Default::default()
-        };
+        // Explicit flags — do not inherit SWIF_ALLOW_* from prod-gate env.
+        let mut p = policy(false, false);
         assert_eq!(p.preferred, MaskId::Tls13Stable);
         p.on_handshake_timeout();
         p.on_handshake_timeout();
@@ -155,11 +165,7 @@ mod tests {
 
     #[test]
     fn can_switch_to_quic_lab_when_allowed() {
-        let mut p = DialPolicy {
-            allow_quic_lab_fallback: true,
-            allow_quic_stable_fallback: false,
-            ..Default::default()
-        };
+        let mut p = policy(true, false);
         p.on_handshake_timeout();
         p.on_handshake_timeout();
         let (next, _) = p.on_handshake_timeout();
@@ -168,11 +174,7 @@ mod tests {
 
     #[test]
     fn prefers_quic_stable_over_lab() {
-        let mut p = DialPolicy {
-            allow_quic_lab_fallback: true,
-            allow_quic_stable_fallback: true,
-            ..Default::default()
-        };
+        let mut p = policy(true, true);
         p.on_handshake_timeout();
         p.on_handshake_timeout();
         let (next, _) = p.on_handshake_timeout();
@@ -181,11 +183,10 @@ mod tests {
 
     #[test]
     fn mask_offer_quic_ignored_without_flag() {
-        let mut p = DialPolicy {
-            allow_quic_lab_fallback: false,
-            ..Default::default()
-        };
+        let mut p = policy(false, false);
         p.on_mask_offer("quic_fast");
+        assert_eq!(p.preferred, MaskId::Tls13Stable);
+        p.on_mask_offer("quic_stable");
         assert_eq!(p.preferred, MaskId::Tls13Stable);
     }
 }

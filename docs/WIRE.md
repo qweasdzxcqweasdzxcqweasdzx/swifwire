@@ -12,7 +12,7 @@
 | Mask on-wire (TLS/QUIC templates) | **NO** — only in mask pack |
 | Cover origin HTTP | **NO** |
 
-После установки session keys все SwifWire сообщения — AEAD records. До keys — только Noise messages внутри mask pipe (байты маски не специфицированы здесь).
+После установки session keys все SwifWire сообщения — AEAD records. До keys — только **SwifHS v0** handshake messages внутри mask pipe (байты маски не специфицированы здесь). Не Noise_IK.
 
 ---
 

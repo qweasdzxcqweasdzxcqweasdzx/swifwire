@@ -6,13 +6,13 @@
 ## What this project is
 
 SwifWire = custom tunnel protocol for SwifTun.
-Stack: Mask (wire appearance) || Session (Noise_IK-like X25519 + ChaCha20-Poly1305 AEAD + stream mux + datagram).
-NOT Xray protocol. NOT WireGuard. Edge runs as sidecar binary `swif-edge` (3x-ui MTProto pattern).
+Stack: Mask (wire appearance) || Session (SwifHS v0: X25519 + ChaCha20-Poly1305 AEAD + stream mux + datagram).
+NOT Noise_IK. NOT Xray protocol. NOT WireGuard. Edge = sidecar `swif-edge` (3x-ui MTProto pattern).
 Client embeds `swif-core` / `swifwire.dll` and exposes local SOCKS5; each CONNECT dials the edge.
 
 ## Current version
 
-See VERSION file (commercial Windows pack 0.2.x). Default mask = tls13_stable.
+See VERSION file (0.4.0 toward production mass clients). Default mask = tls13_stable.
 
 ## Binaries
 
@@ -29,8 +29,10 @@ swif://HOST:PORT?pub=HEX64&mask=tls13_stable&sni=cdn.example.com
 ```
 
 - pub: server static public key, 64 lowercase/upper hex chars (32 bytes)
-- mask: null_tcp | tls13_stable | quic_fast
+- mask: tls13_stable (default) | quic_stable | quic_lab/quic_fast | null_tcp (lab)
 - sni: optional cover SNI for tls13_stable
+- tls_verify: pin | webpki
+- legacy_fallback_uri: opaque share for host dual-stack
 
 ## Client core config (flat JSON accepted by swif_core_start / swif-core-run)
 
@@ -65,6 +67,7 @@ From include/swifwire.h:
 - swif_core_apply_mask_pack(bytes, len, &err)
 - swif_core_status_alloc(&err) → JSON schema/core-status.v1.json
 - swif_core_outbound_alloc(&err)
+- swif_core_legacy_fallback_alloc(&err) → empty string if unset
 - swif_panel_edge_argv_alloc(inbound_json, &err)
 - swif_panel_share_uri_alloc(inbound_json, public_host, server_pub_hex, remark, &err)
 
@@ -75,19 +78,17 @@ Free every allocated char* with swif_string_free.
 1. Never put server.key in client configs, git, or chat logs.
 2. Do not enable null_tcp on public nodes unless SWIF_ALLOW_NULL=1 intentionally (lab only).
 3. Prefer tls13_stable + real cover domain/cert in production.
-4. Prod tls13_stable edge REQUIRES --cover/--cover-upstream OR SWIF_LAB=1 (builtin HTML is lab-only).
-5. Prefer --tls-cert/--tls-key PEM for prod; JSON lab-cert.der.json is lab.
-6. Handshake is SwifHS v0 (not Noise_IK). See docs/WIRE.md §4 and docs/HARDENING.md.
-7. quic_fast == quic_lab thin cover — not prod default.
-8. After changing inbound, restart swif-edge sidecar; republish swif:// with new pub if key rotated.
-9. Smoke: scripts/smoke-all.ps1 (sets SWIF_LAB=1). Release: scripts/release-win.ps1.
+4. Prod tls13_stable edge REQUIRES --cover + --tls-cert/--tls-key PEM (SWIF_LAB=1 = lab-only builtin/JSON).
+5. Handshake is SwifHS v0 (not Noise_IK). See docs/WIRE.md §4, docs/CRYPTO.md.
+6. quic_fast == quic_lab thin cover — not prod default; quic_stable lab-gated.
+7. After changing inbound, restart swif-edge sidecar; republish swif:// with new pub if key rotated.
+8. Gate: scripts/prod-gate.ps1 (+ prod-cover-probe). Release: scripts/release-win.ps1.
 
 ## Hardening status
 
-Read docs/HARDENING.md.
-Done: SwifHS v0, resume_fs, cover mirror, PEM, SWIF_LAB, tls_verify pin|webpki, shaper idle, DialPolicy (tls-sticky), smoke-probe-cover, pack ALPN hints, quic_lab grease, quic_stable scaffold, legacy_fallback_uri.
-Open: full uTLS extension-order JA3/JA4, quinn quic_stable runtime, host-app legacy dialer.
-Session: REKEY ctrl=6 epoch; Early ctrl=9 (no TUN); ticket replay window helper.
+Read docs/HARDENING.md (WP0 gap table → 0.4.0).
+`tls_extension_order_ready` stays false until a real uTLS/craftls≥0.23 path ships (0.5).
+Host must EXECUTE `legacy_fallback_uri` (core only hints).
 
 ## Dual-stack (phase 1)
 

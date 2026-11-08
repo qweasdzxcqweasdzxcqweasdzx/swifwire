@@ -1,0 +1,33 @@
+# systemd unit — SwifWire edge sidecar (place next to 3x-ui / xray, separate process).
+# Install: copy to /etc/systemd/system/swif-edge.service ; systemctl enable --now swif-edge
+
+[Unit]
+Description=SwifWire edge (tls13_stable cover sidecar)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=swif
+Group=swif
+WorkingDirectory=/var/lib/swif
+Environment=RUST_LOG=info
+# Do NOT set SWIF_LAB / SWIF_ALLOW_NULL on public nodes.
+ExecStart=/usr/local/bin/swif-edge \
+  --listen 0.0.0.0:8443 \
+  --mask tls13_stable \
+  --key /var/lib/swif/server.key \
+  --pub-out /var/lib/swif/server.pub \
+  --sni cdn.example.com \
+  --tls-cert /etc/swif/cover.crt \
+  --tls-key /etc/swif/cover.key \
+  --cover 127.0.0.1:8080
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/swif
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

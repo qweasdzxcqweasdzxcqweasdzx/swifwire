@@ -36,7 +36,7 @@ pub use quic_stable::{
 };
 pub use tls_fingerprint::{
     client_hello_intent, client_hello_intent_json, fingerprint_status_message,
-    intended_extension_order, FingerprintBudget,
+    intended_extension_order, partial_ja3_label, FingerprintBudget,
 };
 pub use tls_profile::{ClientHelloProfile, TlsPackHints};
 pub use tls_provider::{provider_for_profile, suite_order_ids};
