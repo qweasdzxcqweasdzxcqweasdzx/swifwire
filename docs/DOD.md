@@ -24,8 +24,11 @@ See [HARDENING.md](HARDENING.md). Neutral goal: swappable mask + measurable cove
 - [x] `legacy_fallback_uri` config + dial-exhausted hint (host app executes legacy)
 - [x] Partial ClientHello FP: cipher/kx CryptoProvider profiles (+ ALPN)
 - [x] Session REKEY + key_phase; CONTROL_EARLY; TicketReplayWindow
+- [x] Edge: `TicketReplayWindow` on null/tls/quic resume; REKEY ack-before-advance
+- [x] Core: pack `TlsPackHints` hot-apply via `spawn_with_hints`; client REKEY epoch 1
+- [x] `quic_stable` `PrefStreamBuf` / `encode_pref_record` stream framing bridge
 - [ ] Full browser ClientHello FP (extension order / uTLS) — remaining
-- [ ] Quinn/pack `quic_stable` runtime — WP3 remaining
+- [ ] Quinn dial/accept for `quic_stable` — WP3 remaining
 - [ ] cargo test + smoke-all green on release branch
 
 ## Tag (when harden DoD closed)

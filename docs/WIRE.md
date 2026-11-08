@@ -199,7 +199,13 @@ ctrl = Rekey (6)
 epoch: u64 BE   // must be previous+1
 ```
 
-Both peers call `derive_rekey_keys(current, epoch)`, flip record `key_phase` bit, reset AEAD counters.
+Ordering (normative):
+
+1. Initiator seals `Rekey(epoch)` under **current** keys and sends.
+2. Responder opens under current keys; if `epoch == current+1`, seals ack `Rekey(epoch)` under **current** keys, then both call `advance_rekey(epoch)`.
+3. Initiator opens ack under current keys, then `advance_rekey(epoch)`.
+
+Both peers derive via `derive_rekey_keys(current, epoch)`, flip record `key_phase` bit, reset AEAD counters. Ack-before-advance avoids decrypting the ack under the new epoch.
 
 ### 4.6 CONTROL_EARLY (ctrl = 9)
 

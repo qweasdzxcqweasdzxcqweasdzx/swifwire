@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use swif_mask::{
     dial_tls_verify, parse_tls_verify, read_pref, write_pref, LabTlsMaterial, MaskDial, NullTcp,
-    TlsVerifyMode,
+    TlsPackHints, TlsVerifyMode,
 };
 use swif_mux::Mux;
 use swif_session::{client_finish_keys, client_hello_inner, SessionTransport};
@@ -31,7 +31,12 @@ pub struct RuntimeEngine {
 }
 
 impl RuntimeEngine {
+    #[allow(dead_code)]
     pub fn spawn(outbound: Outbound) -> Result<Self, CoreError> {
+        Self::spawn_with_hints(outbound, TlsPackHints::default())
+    }
+
+    pub fn spawn_with_hints(outbound: Outbound, hints: TlsPackHints) -> Result<Self, CoreError> {
         let stop = Arc::new(AtomicBool::new(false));
         let stop2 = stop.clone();
         let join = thread::Builder::new()
@@ -44,7 +49,7 @@ impl RuntimeEngine {
                         return;
                     }
                 };
-                if let Err(e) = rt.block_on(run_socks_loop(outbound, stop2)) {
+                if let Err(e) = rt.block_on(run_socks_loop(outbound, hints, stop2)) {
                     error!("swif runtime exited: {e:#}");
                 }
             })
@@ -99,7 +104,11 @@ fn load_tls_material(path: &str) -> Result<LabTlsMaterial, CoreError> {
     })
 }
 
-async fn run_socks_loop(outbound: Outbound, stop: Arc<AtomicBool>) -> Result<(), CoreError> {
+async fn run_socks_loop(
+    outbound: Outbound,
+    hints: TlsPackHints,
+    stop: Arc<AtomicBool>,
+) -> Result<(), CoreError> {
     let socks: SocketAddr = outbound
         .settings
         .socks_listen
@@ -120,7 +129,7 @@ async fn run_socks_loop(outbound: Outbound, stop: Arc<AtomicBool>) -> Result<(),
             .tls_material_path
             .clone()
             .unwrap_or_else(|| "lab-cert.der.json".into());
-        Some(load_tls_material(&path)?)
+        Some(load_tls_material(&path)?.with_hints(hints))
     } else {
         None
     };
@@ -318,6 +327,20 @@ where
         }
     }
 
+    // Optional early rekey (epoch 1) — ack under old keys, then both advance.
+    {
+        let epoch = 1u64;
+        let rk = swif_wire::rekey(epoch);
+        write_pref(&mut remote, &sess.seal_frame(&rk)?).await?;
+        let ack = read_pref(&mut remote).await?;
+        let (af, _) = sess.open_frame(&ack)?;
+        if let Some((swif_wire::CtrlType::Rekey, p)) = swif_wire::parse_ctrl(&af) {
+            if swif_wire::parse_rekey(&p) == Some(epoch) {
+                sess.advance_rekey(epoch)?;
+            }
+        }
+    }
+
     let (sid, open) = mux.open_stream(target.into_bytes());
     write_pref(&mut remote, &sess.seal_frame(&open)?).await?;
 
@@ -345,7 +368,25 @@ where
                         local.write_all(&data).await?;
                     }
                     FrameType::StreamReset => return Ok(()),
-                    FrameType::Pong | FrameType::Control => {}
+                    FrameType::Pong => {}
+                    FrameType::Control => {
+                        if let Some((swif_wire::CtrlType::Rekey, p)) = swif_wire::parse_ctrl(&frame) {
+                            if let Some(epoch) = swif_wire::parse_rekey(&p) {
+                                if epoch == sess.epoch() + 1 {
+                                    write_pref(
+                                        &mut remote,
+                                        &sess.seal_frame(&swif_wire::rekey(epoch))?,
+                                    )
+                                    .await?;
+                                    sess.advance_rekey(epoch)?;
+                                }
+                            }
+                        }
+                    }
+                    FrameType::Ping => {
+                        let pong = swif_wire::Frame::new(FrameType::Pong, frame.body.clone());
+                        write_pref(&mut remote, &sess.seal_frame(&pong)?).await?;
+                    }
                     _ => {}
                 }
             }

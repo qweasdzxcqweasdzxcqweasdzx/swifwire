@@ -161,7 +161,7 @@ SwifWire **не** исполняет его: при исчерпании dial re
 
 Pack: `templates.client_hello_profile` (`chrome_stable` / `firefox_stable` / `rustls_default`) + `alpn` применяются через rustls ALPN. Полный JA3/uTLS ещё не закрыт.
 
-`quic_stable` в pack — scaffold; runtime ready = false. Lab UDP = `quic_lab` / `quic_fast` + `SWIF_ALLOW_QUIC_LAB`.
+`quic_stable` в pack — scaffold; `PrefStreamBuf` framing for future QUIC stream 0 ready; `is_runtime_ready=false` until quinn. Lab UDP = `quic_lab` / `quic_fast` + `SWIF_ALLOW_QUIC_LAB`.
 
 ## 11. Частые ошибки
 

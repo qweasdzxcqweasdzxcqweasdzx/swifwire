@@ -7,7 +7,7 @@ use rand::RngCore;
 use sha2::{Digest, Sha256};
 use swif_crypto::{
     derive_session_keys, open_ticket, public_from_bytes, seal_ticket, ticket_expired,
-    EphemeralKeypair, SessionKeys, StaticKeypair,
+    EphemeralKeypair, SessionKeys, StaticKeypair, TicketReplayWindow,
 };
 use swif_wire::{MAGIC_INNER, PROTOCOL_VERSION};
 
@@ -259,9 +259,25 @@ pub fn server_respond_keys_ex(
     client_raw: &[u8],
     caps: u64,
 ) -> Result<(Vec<u8>, SessionKeys, bool)> {
+    server_respond_keys_ex_replay(server_static, ticket_master, client_raw, caps, None)
+}
+
+/// Like `server_respond_keys_ex`, with optional ticket replay window (resume only).
+pub fn server_respond_keys_ex_replay(
+    server_static: &StaticKeypair,
+    ticket_master: &[u8; 32],
+    client_raw: &[u8],
+    caps: u64,
+    mut replay: Option<&mut TicketReplayWindow>,
+) -> Result<(Vec<u8>, SessionKeys, bool)> {
     let ch = decode_client(client_raw)?;
 
     if !ch.ticket.is_empty() {
+        if let Some(w) = replay.as_deref_mut() {
+            if w.check_and_insert(&ch.ticket) {
+                return Err(Error::Handshake);
+            }
+        }
         let (secret, exp) = open_ticket(ticket_master, &ch.ticket).map_err(|_| Error::Handshake)?;
         if ticket_expired(exp, now_unix()) {
             return Err(Error::Handshake);
@@ -472,6 +488,20 @@ mod tests {
         let (client_raw, _) = client_hello_inner(server.public_bytes(), 0x7);
         // Cover path: wrong static cannot satisfy client-es proof.
         assert!(server_respond_keys(&other, &client_raw, 0x7).is_err());
+    }
+
+    #[test]
+    fn ticket_replay_rejected() {
+        let server = StaticKeypair::generate();
+        let master = server.public_bytes();
+        let (c1, eph) = client_hello_inner(server.public_bytes(), 0x7);
+        let (s1, _, _) = server_respond_keys_ex(&server, &master, &c1, 0x7).unwrap();
+        let (_, psk) = client_finish_keys_ex(server.public_bytes(), &eph, &c1, &s1).unwrap();
+        let ticket = server_hello_ticket(&s1).unwrap();
+        let rh = client_resume_hello(&ticket, &psk, 0x7);
+        let mut win = TicketReplayWindow::new(64);
+        assert!(server_respond_keys_ex_replay(&server, &master, &rh, 0x7, Some(&mut win)).is_ok());
+        assert!(server_respond_keys_ex_replay(&server, &master, &rh, 0x7, Some(&mut win)).is_err());
     }
 
     #[test]

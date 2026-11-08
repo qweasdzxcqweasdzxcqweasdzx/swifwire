@@ -169,4 +169,36 @@ mod tests {
         let (got, _) = s.open_frame(&wire).unwrap();
         assert_eq!(got, f);
     }
+
+    #[test]
+    fn rekey_control_ack_under_old_keys() {
+        let server = StaticKeypair::generate();
+        let (cr, eph) = client_hello_inner(server.public_bytes(), 1);
+        let (sr, ks) = server_respond_keys(&server, &cr, 1).unwrap();
+        let kc = client_finish_keys(server.public_bytes(), &eph, &cr, &sr).unwrap();
+        let mut c = SessionTransport::new_client(kc, Shaper::new(ShaperProfile::default()));
+        let mut s = SessionTransport::new_server(ks, Shaper::new(ShaperProfile::default()));
+
+        let epoch = 1u64;
+        let offer = c.seal_frame(&swif_wire::rekey(epoch)).unwrap();
+        let (of, _) = s.open_frame(&offer).unwrap();
+        let (ty, p) = swif_wire::parse_ctrl(&of).unwrap();
+        assert_eq!(ty, swif_wire::CtrlType::Rekey);
+        assert_eq!(swif_wire::parse_rekey(&p), Some(epoch));
+        assert_eq!(epoch, s.epoch() + 1);
+
+        let ack = s.seal_frame(&swif_wire::rekey(epoch)).unwrap();
+        s.advance_rekey(epoch).unwrap();
+
+        let (af, _) = c.open_frame(&ack).unwrap();
+        let (ty2, p2) = swif_wire::parse_ctrl(&af).unwrap();
+        assert_eq!(ty2, swif_wire::CtrlType::Rekey);
+        assert_eq!(swif_wire::parse_rekey(&p2), Some(epoch));
+        c.advance_rekey(epoch).unwrap();
+
+        let f = bodies::stream_data(1, b"post");
+        let wire = c.seal_frame(&f).unwrap();
+        let (got, _) = s.open_frame(&wire).unwrap();
+        assert_eq!(got, f);
+    }
 }

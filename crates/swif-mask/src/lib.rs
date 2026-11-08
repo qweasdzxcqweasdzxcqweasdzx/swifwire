@@ -22,7 +22,11 @@ pub use quic_fast::{
     decode_pref_datagram, encode_pref_datagram, encode_pref_datagram_slice, random_dcid,
     random_dcid_var, unwrap_payload, wrap_payload, QuicFastClient, COVER_VERSION, DCID_LEN,
 };
-pub use quic_stable::{is_runtime_ready as quic_stable_ready, status_message as quic_stable_status, QuicStableHints, PROFILE_ID as QUIC_STABLE};
+pub use quic_stable::{
+    encode_pref_record as quic_stable_encode_pref, is_runtime_ready as quic_stable_ready,
+    status_message as quic_stable_status, PrefStreamBuf, PrefStreamError, QuicStableHints,
+    PROFILE_ID as QUIC_STABLE, MAX_PREF_RECORD as QUIC_STABLE_MAX_PREF,
+};
 pub use tls_profile::{ClientHelloProfile, TlsPackHints};
 pub use tls_provider::{provider_for_profile, suite_order_ids};
 pub use tls13::{

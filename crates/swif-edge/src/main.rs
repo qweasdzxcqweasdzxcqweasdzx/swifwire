@@ -6,13 +6,14 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
-use swif_crypto::StaticKeypair;
+use swif_crypto::{StaticKeypair, TicketReplayWindow};
 use swif_mask::{
     accept_tls, decode_pref_datagram, encode_pref_datagram_slice, plausible_hello_len, read_pref,
     read_pref_timeout, serve_cover, write_pem, write_pref, CoverMode, LabTlsMaterial,
 };
 use swif_mux::Mux;
-use swif_session::{server_respond_keys, SessionTransport};
+use swif_session::{server_respond_keys_ex_replay, SessionTransport};
+use tokio::sync::Mutex as AsyncMutex;
 use swif_shape::{Shaper, ShaperProfile};
 use swif_tun::{decode_udp4, encode_udp4_reply};
 use swif_wire::{Frame, FrameType};
@@ -123,68 +124,26 @@ fn cover_mode_for(upstream: Option<SocketAddr>) -> Result<CoverMode> {
     bail!("tls13_stable prod requires --cover / --cover-upstream (or SWIF_LAB=1 for builtin cover)")
 }
 
-async fn session_loop<S>(mut client: S, key: Arc<StaticKeypair>, hello: Vec<u8>) -> Result<()>
+async fn session_loop<S>(
+    mut client: S,
+    key: Arc<StaticKeypair>,
+    hello: Vec<u8>,
+    replay: Arc<AsyncMutex<TicketReplayWindow>>,
+) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let (server_raw, keys) = server_respond_keys(&key, &hello, 0x07).context("handshake")?;
-    write_pref(&mut client, &server_raw).await?;
-
-    let mut sess = SessionTransport::new_server(keys, Shaper::new(ShaperProfile::desktop()));
-    let mut mux = Mux::new_server();
-    // Hot mask hint (MVP: offer current lab default for next dial).
-    let offer = swif_wire::mask_offer("tls13_stable", "lab");
-    write_pref(&mut client, &sess.seal_frame(&offer)?).await?;
-
-    loop {
-        let sealed = match read_pref_timeout(&mut client, sess.idle_timeout()).await? {
-            Some(s) => s,
-            None => {
-                if let Some(idle) = sess.seal_idle_cover()? {
-                    write_pref(&mut client, &idle).await?;
-                }
-                continue;
-            }
-        };
-        let (frame, _) = sess.open_frame(&sealed)?;
-        match frame.ty {
-            FrameType::Control => {
-                if let Some((ty, p)) = swif_wire::parse_ctrl(&frame) {
-                    match ty {
-                        swif_wire::CtrlType::MaskAck => {
-                            if let Some((id, ok)) = swif_wire::parse_mask_ack(&p) {
-                                info!("MASK_ACK {id} applied={ok}");
-                            }
-                        }
-                        swif_wire::CtrlType::Health => {
-                            if let Some((rtt, loss)) = swif_wire::parse_health(&p) {
-                                info!("HEALTH rtt={rtt} loss={loss}");
-                                let reply = swif_wire::health(rtt, loss);
-                                write_pref(&mut client, &sess.seal_frame(&reply)?).await?;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            FrameType::StreamOpen => {
-                let sid = mux.accept_open(&frame)?;
-                let target = parse_target_from_open_body(&frame.body)?;
-                info!("stream {sid} → {target}");
-                let mut remote = TcpStream::connect(&target).await?;
-                bidirectional_proxy(&mut client, &mut sess, &mut mux, sid, &mut remote).await?;
-                return Ok(());
-            }
-            FrameType::Datagram => {
-                handle_udp_datagram(&mut client, &mut sess, &frame).await?;
-            }
-            FrameType::Ping => {
-                let pong = Frame::new(FrameType::Pong, frame.body.clone());
-                write_pref(&mut client, &sess.seal_frame(&pong)?).await?;
-            }
-            other => warn!("unexpected frame {other:?}"),
-        }
+    let master = key.public_bytes();
+    let (server_raw, keys, resumed) = {
+        let mut w = replay.lock().await;
+        server_respond_keys_ex_replay(&key, &master, &hello, 0x07, Some(&mut w))
+            .context("handshake")?
+    };
+    if resumed {
+        info!("ticket resume ok");
     }
+    write_pref(&mut client, &server_raw).await?;
+    post_handshake_loop(client, keys, "tls13_stable").await
 }
 
 async fn handle_udp_datagram<S>(
@@ -284,9 +243,13 @@ where
     }
 }
 
-async fn handle_null(mut client: TcpStream, key: Arc<StaticKeypair>) -> Result<()> {
+async fn handle_null(
+    mut client: TcpStream,
+    key: Arc<StaticKeypair>,
+    replay: Arc<AsyncMutex<TicketReplayWindow>>,
+) -> Result<()> {
     let hello = read_pref(&mut client).await.context("client hello")?;
-    session_loop(client, key, hello).await
+    session_loop(client, key, hello, replay).await
 }
 
 async fn handle_tls(
@@ -295,6 +258,7 @@ async fn handle_tls(
     acceptor: Arc<tokio_rustls::TlsAcceptor>,
     cover: Option<SocketAddr>,
     cover_mode: CoverMode,
+    replay: Arc<AsyncMutex<TicketReplayWindow>>,
 ) -> Result<()> {
     let mut tls = accept_tls(tcp, &acceptor).await?;
     let mut lb = [0u8; 4];
@@ -321,48 +285,18 @@ async fn handle_tls(
     }
     let mut hello = vec![0u8; n];
     tls.read_exact(&mut hello).await?;
-    match server_respond_keys(&key, &hello, 0x07) {
-        Ok((server_raw, keys)) => {
-            write_pref(&mut tls, &server_raw).await?;
-            let mut sess = SessionTransport::new_server(keys, Shaper::new(ShaperProfile::desktop()));
-            let mut mux = Mux::new_server();
-            let offer = swif_wire::mask_offer("tls13_stable", "lab");
-            write_pref(&mut tls, &sess.seal_frame(&offer)?).await?;
-            loop {
-                let sealed = match read_pref_timeout(&mut tls, sess.idle_timeout()).await? {
-                    Some(s) => s,
-                    None => {
-                        if let Some(idle) = sess.seal_idle_cover()? {
-                            write_pref(&mut tls, &idle).await?;
-                        }
-                        continue;
-                    }
-                };
-                let (frame, _) = sess.open_frame(&sealed)?;
-                match frame.ty {
-                    FrameType::Control => {
-                        if let Some((swif_wire::CtrlType::MaskAck, p)) = swif_wire::parse_ctrl(&frame)
-                        {
-                            if let Some((id, ok)) = swif_wire::parse_mask_ack(&p) {
-                                info!("MASK_ACK {id} applied={ok}");
-                            }
-                        }
-                    }
-                    FrameType::StreamOpen => {
-                        let sid = mux.accept_open(&frame)?;
-                        let target = parse_target_from_open_body(&frame.body)?;
-                        info!("tls stream {sid} → {target}");
-                        let mut remote = TcpStream::connect(&target).await?;
-                        bidirectional_proxy(&mut tls, &mut sess, &mut mux, sid, &mut remote).await?;
-                        return Ok(());
-                    }
-                    FrameType::Ping => {
-                        let pong = Frame::new(FrameType::Pong, frame.body.clone());
-                        write_pref(&mut tls, &sess.seal_frame(&pong)?).await?;
-                    }
-                    other => warn!("unexpected {other:?}"),
-                }
+    let master = key.public_bytes();
+    let hs = {
+        let mut w = replay.lock().await;
+        server_respond_keys_ex_replay(&key, &master, &hello, 0x07, Some(&mut w))
+    };
+    match hs {
+        Ok((server_raw, keys, resumed)) => {
+            if resumed {
+                info!("tls ticket resume ok");
             }
+            write_pref(&mut tls, &server_raw).await?;
+            post_handshake_loop(tls, keys, "tls13_stable").await
         }
         Err(e) => {
             info!("inner auth fail → cover ({e}) mode={cover_mode:?}");
@@ -375,7 +309,92 @@ async fn handle_tls(
     }
 }
 
-async fn run_quic(listen: SocketAddr, key: Arc<StaticKeypair>) -> Result<()> {
+async fn post_handshake_loop<S>(
+    mut client: S,
+    keys: swif_crypto::SessionKeys,
+    mask_id: &str,
+) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let mut sess = SessionTransport::new_server(keys, Shaper::new(ShaperProfile::desktop()));
+    let mut mux = Mux::new_server();
+    let offer = swif_wire::mask_offer(mask_id, "lab");
+    write_pref(&mut client, &sess.seal_frame(&offer)?).await?;
+    loop {
+        let sealed = match read_pref_timeout(&mut client, sess.idle_timeout()).await? {
+            Some(s) => s,
+            None => {
+                if let Some(idle) = sess.seal_idle_cover()? {
+                    write_pref(&mut client, &idle).await?;
+                }
+                continue;
+            }
+        };
+        let (frame, _) = sess.open_frame(&sealed)?;
+        match frame.ty {
+            FrameType::Control => {
+                if let Some((ty, p)) = swif_wire::parse_ctrl(&frame) {
+                    match ty {
+                        swif_wire::CtrlType::MaskAck => {
+                            if let Some((id, ok)) = swif_wire::parse_mask_ack(&p) {
+                                info!("MASK_ACK {id} applied={ok}");
+                            }
+                        }
+                        swif_wire::CtrlType::Health => {
+                            if let Some((rtt, loss)) = swif_wire::parse_health(&p) {
+                                let reply = swif_wire::health(rtt, loss);
+                                write_pref(&mut client, &sess.seal_frame(&reply)?).await?;
+                            }
+                        }
+                        swif_wire::CtrlType::Rekey => {
+                            if let Some(epoch) = swif_wire::parse_rekey(&p) {
+                                if epoch == sess.epoch() + 1 {
+                                    // Ack under current keys, then flip epoch together.
+                                    write_pref(
+                                        &mut client,
+                                        &sess.seal_frame(&swif_wire::rekey(epoch))?,
+                                    )
+                                    .await?;
+                                    sess.advance_rekey(epoch)?;
+                                    info!("rekey applied epoch={epoch}");
+                                }
+                            }
+                        }
+                        swif_wire::CtrlType::Early => {
+                            if let Some((reason, note)) = swif_wire::parse_early_ctrl(&p) {
+                                info!("EARLY reason={reason} note={note}");
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            FrameType::StreamOpen => {
+                let sid = mux.accept_open(&frame)?;
+                let target = parse_target_from_open_body(&frame.body)?;
+                info!("stream {sid} → {target}");
+                let mut remote = TcpStream::connect(&target).await?;
+                bidirectional_proxy(&mut client, &mut sess, &mut mux, sid, &mut remote).await?;
+                return Ok(());
+            }
+            FrameType::Datagram => {
+                handle_udp_datagram(&mut client, &mut sess, &frame).await?;
+            }
+            FrameType::Ping => {
+                let pong = Frame::new(FrameType::Pong, frame.body.clone());
+                write_pref(&mut client, &sess.seal_frame(&pong)?).await?;
+            }
+            other => warn!("unexpected frame {other:?}"),
+        }
+    }
+}
+
+async fn run_quic(
+    listen: SocketAddr,
+    key: Arc<StaticKeypair>,
+    replay: Arc<AsyncMutex<TicketReplayWindow>>,
+) -> Result<()> {
     let sock = Arc::new(UdpSocket::bind(listen).await?);
     info!("quic_fast UDP listen {listen}");
     let mut buf = vec![0u8; 64 * 1024];
@@ -386,8 +405,9 @@ async fn run_quic(listen: SocketAddr, key: Arc<StaticKeypair>) -> Result<()> {
         };
         let sock = sock.clone();
         let key = key.clone();
+        let replay = replay.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_quic_session(sock, peer, dcid, hello, key).await {
+            if let Err(e) = handle_quic_session(sock, peer, dcid, hello, key, replay).await {
                 error!("quic {peer}: {e:#}");
             }
         });
@@ -400,8 +420,13 @@ async fn handle_quic_session(
     dcid: Vec<u8>,
     hello: Vec<u8>,
     key: Arc<StaticKeypair>,
+    replay: Arc<AsyncMutex<TicketReplayWindow>>,
 ) -> Result<()> {
-    let (server_raw, keys) = server_respond_keys(&key, &hello, 0x07)?;
+    let master = key.public_bytes();
+    let (server_raw, keys, _) = {
+        let mut w = replay.lock().await;
+        server_respond_keys_ex_replay(&key, &master, &hello, 0x07, Some(&mut w))?
+    };
     let pkt = encode_pref_datagram_slice(&dcid, &server_raw);
     sock.send_to(&pkt, peer).await?;
 
@@ -463,6 +488,7 @@ async fn main() -> Result<()> {
         .init();
     let args = Args::parse();
     let key = Arc::new(load_or_create_key(&args.key, &args.pub_out)?);
+    let replay = Arc::new(AsyncMutex::new(TicketReplayWindow::new(4096)));
     info!(
         "swif-edge listen {} mask={} pub={}",
         args.listen,
@@ -474,7 +500,7 @@ async fn main() -> Result<()> {
         if !lab_mode() {
             warn!("quic_fast/quic_lab is thin UDP cover — lab only; set SWIF_LAB=1 to silence");
         }
-        return run_quic(args.listen, key).await;
+        return run_quic(args.listen, key, replay).await;
     }
     if args.mask == "tls13_stable" {
         let cover = resolve_cover(&args);
@@ -487,8 +513,9 @@ async fn main() -> Result<()> {
             let (sock, peer) = listener.accept().await?;
             let key = key.clone();
             let acceptor = acceptor.clone();
+            let replay = replay.clone();
             tokio::spawn(async move {
-                if let Err(e) = handle_tls(sock, key, acceptor, cover, cover_mode).await {
+                if let Err(e) = handle_tls(sock, key, acceptor, cover, cover_mode, replay).await {
                     error!("tls peer {peer}: {e:#}");
                 }
             });
@@ -504,8 +531,9 @@ async fn main() -> Result<()> {
     loop {
         let (sock, peer) = listener.accept().await?;
         let key = key.clone();
+        let replay = replay.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_null(sock, key).await {
+            if let Err(e) = handle_null(sock, key, replay).await {
                 error!("peer {peer}: {e:#}");
             }
         });

@@ -130,6 +130,7 @@ struct CoreInner {
     config: CoreConfig,
     outbound: Outbound,
     pack: Option<MaskPack>,
+    tls_hints: swif_mask::TlsPackHints,
     policy: DialPolicy,
     status: CoreStatus,
     engine: Option<RuntimeEngine>,
@@ -152,8 +153,12 @@ pub fn core_start(config_json: &str) -> Result<CoreHandle, CoreError> {
     let server = format!("{}:{}", outbound.settings.address, outbound.settings.port);
     let route_mode = config.route_mode.clone();
     let start_rt = config.start_runtime;
+    let tls_hints = swif_mask::TlsPackHints::default();
     let engine = if start_rt {
-        Some(RuntimeEngine::spawn(outbound.clone())?)
+        Some(RuntimeEngine::spawn_with_hints(
+            outbound.clone(),
+            tls_hints.clone(),
+        )?)
     } else {
         None
     };
@@ -167,6 +172,7 @@ pub fn core_start(config_json: &str) -> Result<CoreHandle, CoreError> {
             config,
             outbound,
             pack: None,
+            tls_hints,
             policy: DialPolicy::default(),
             engine,
             status: CoreStatus {
@@ -269,9 +275,21 @@ pub fn core_apply_mask_pack(handle: &CoreHandle, bytes: &[u8]) -> Result<(), Cor
             p.id,
             hints.profile.as_str()
         );
+        g.tls_hints = hints;
     }
     g.pack = Some(pack);
     g.status.state = "pack_applied".into();
+    // Hot-apply: restart runtime with new TLS hints if it was running.
+    if g.engine.is_some() {
+        if let Some(eng) = g.engine.take() {
+            eng.shutdown();
+        }
+        g.engine = Some(crate::runtime::RuntimeEngine::spawn_with_hints(
+            g.outbound.clone(),
+            g.tls_hints.clone(),
+        )?);
+        g.status.state = "pack_applied_restarted".into();
+    }
     Ok(())
 }
 
