@@ -7,7 +7,8 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use swif_crypto::StaticKeypair;
 use swif_mask::{
-    dial_tls, read_pref, write_pref, LabTlsMaterial, NullTcp, QuicFastClient, MaskDial,
+    dial_quic_stable, dial_tls, read_pref, write_pref, LabTlsMaterial, MaskDial, NullTcp,
+    QuicFastClient, QuicStableHints, TlsVerifyMode,
 };
 use swif_mux::Mux;
 use swif_session::{client_finish_keys, client_hello_inner, SessionTransport};
@@ -28,7 +29,7 @@ struct Args {
     pub_file: PathBuf,
     #[arg(long, default_value = "127.0.0.1:11080")]
     socks: SocketAddr,
-    /// null_tcp (lab, needs SWIF_ALLOW_NULL=1) | tls13_stable | quic_fast
+    /// null_tcp | tls13_stable | quic_stable | quic_fast
     #[arg(long, default_value = "tls13_stable")]
     mask: String,
     #[arg(long, default_value = "lab-cert.der.json")]
@@ -187,6 +188,31 @@ async fn proxy_tls(
 ) -> Result<()> {
     let remote = dial_tls(server, material).await?;
     pump_session(local, remote, server_pub, target).await
+}
+
+async fn proxy_quic_stable(
+    local: TcpStream,
+    server: SocketAddr,
+    server_pub: [u8; 32],
+    target: String,
+    material: &LabTlsMaterial,
+) -> Result<()> {
+    let client = dial_quic_stable(
+        server,
+        material,
+        &QuicStableHints::default(),
+        TlsVerifyMode::Pin,
+    )
+    .await?;
+    let swif_mask::QuicStableClient {
+        endpoint,
+        conn,
+        stream,
+    } = client;
+    let result = pump_session(local, stream, server_pub, target).await;
+    drop(conn);
+    drop(endpoint);
+    result
 }
 
 async fn proxy_quic(
@@ -381,11 +407,17 @@ async fn main() -> Result<()> {
         "swif-cli socks {} → server {} mask={}",
         args.socks, args.server, args.mask
     );
-    let tls = if args.mask == "tls13_stable" {
+    let tls = if args.mask == "tls13_stable" || args.mask == "quic_stable" {
         Some(load_tls(&args.tls_material)?)
     } else {
         None
     };
+    if args.mask == "quic_stable"
+        && std::env::var("SWIF_ALLOW_QUIC_STABLE").ok().as_deref() != Some("1")
+        && std::env::var("SWIF_LAB").ok().as_deref() != Some("1")
+    {
+        bail!("quic_stable is lab-gated; set SWIF_ALLOW_QUIC_STABLE=1 or SWIF_LAB=1");
+    }
     let listener = TcpListener::bind(args.socks).await?;
     loop {
         let (mut sock, _) = listener.accept().await?;
@@ -402,7 +434,10 @@ async fn main() -> Result<()> {
                     "tls13_stable" => {
                         proxy_tls(sock, server, pubk, target, tls.as_ref().unwrap()).await
                     }
-                    "quic_fast" => proxy_quic(sock, server, pubk, target).await,
+                    "quic_stable" => {
+                        proxy_quic_stable(sock, server, pubk, target, tls.as_ref().unwrap()).await
+                    }
+                    "quic_fast" | "quic_lab" => proxy_quic(sock, server, pubk, target).await,
                     other => bail!("unknown mask {other}"),
                 }
             };

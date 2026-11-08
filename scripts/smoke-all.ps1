@@ -12,6 +12,7 @@ Start-Sleep -Seconds 1
 $scripts = @(
   "smoke-socks.ps1",
   "smoke-tls.ps1",
+  "smoke-quic-stable.ps1",
   "smoke-probe-cover.ps1",
   "smoke-udp.ps1",
   "smoke-tun.ps1",

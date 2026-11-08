@@ -44,5 +44,6 @@ Goal language: measurable cover / probe-resistance, swappable masks — **not** 
 | 0.2.x harden-3 | pack ALPN/`chrome_stable` hints via rustls; quic_lab grease; `quic_stable` scaffold; `legacy_fallback_uri` |
 | 0.2.x proto-4 | CryptoProvider suite/kx order; session rekey+key_phase; CONTROL_EARLY; ticket replay window |
 | 0.2.x proto-5 | Edge replay + REKEY runtime; pack hints hot-apply; `PrefStreamBuf` for quic_stable stream 0 |
+| 0.2.x proto-6 | Quinn `quic_stable` lab runtime; sig-scheme FP; DialPolicy quic_stable fallback |
 
-**Still open:** full JA3/JA4 uTLS (extension order); quinn dial/accept for `quic_stable`; host-app legacy dialer.
+**Still open:** full JA3/JA4 uTLS (extension order / craftls); pack QUIC Initial templates; host-app legacy dialer.

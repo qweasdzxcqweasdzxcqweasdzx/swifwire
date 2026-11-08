@@ -27,8 +27,10 @@ See [HARDENING.md](HARDENING.md). Neutral goal: swappable mask + measurable cove
 - [x] Edge: `TicketReplayWindow` on null/tls/quic resume; REKEY ack-before-advance
 - [x] Core: pack `TlsPackHints` hot-apply via `spawn_with_hints`; client REKEY epoch 1
 - [x] `quic_stable` `PrefStreamBuf` / `encode_pref_record` stream framing bridge
-- [ ] Full browser ClientHello FP (extension order / uTLS) — remaining
-- [ ] Quinn dial/accept for `quic_stable` — WP3 remaining
+- [x] Quinn dial/accept + edge/cli/core lab path (`SWIF_ALLOW_QUIC_STABLE` / `SWIF_LAB`)
+- [x] Partial TLS FP: suite/kx/sig preference + documented extension-order budget
+- [ ] Full browser ClientHello FP (extension order / craftls|uTLS) — remaining
+- [ ] Pack QUIC Initial template mimicry — remaining
 - [ ] cargo test + smoke-all green on release branch
 
 ## Tag (when harden DoD closed)

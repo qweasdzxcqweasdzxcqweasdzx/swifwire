@@ -8,8 +8,8 @@ use std::thread;
 use std::time::Duration;
 
 use swif_mask::{
-    dial_tls_verify, parse_tls_verify, read_pref, write_pref, LabTlsMaterial, MaskDial, NullTcp,
-    TlsPackHints, TlsVerifyMode,
+    dial_quic_stable, dial_tls_verify, parse_tls_verify, read_pref, write_pref, LabTlsMaterial,
+    MaskDial, NullTcp, QuicStableHints, TlsPackHints, TlsVerifyMode,
 };
 use swif_mux::Mux;
 use swif_session::{client_finish_keys, client_hello_inner, SessionTransport};
@@ -123,7 +123,7 @@ async fn run_socks_loop(
     let pubk = parse_pub(&outbound.settings.server_pub_hex)?;
     let mut mask = outbound.settings.mask.clone();
     let verify = parse_tls_verify(&outbound.settings.tls_verify).unwrap_or(TlsVerifyMode::Pin);
-    let tls = if mask == "tls13_stable" {
+    let tls = if mask == "tls13_stable" || mask == "quic_stable" {
         let path = outbound
             .settings
             .tls_material_path
@@ -136,6 +136,11 @@ async fn run_socks_loop(
     if mask == "quic_fast" || mask == "quic_lab" {
         return Err(CoreError::Msg(
             "quic_lab SOCKS runtime not in core yet; use swif-cli / SWIF_ALLOW_QUIC_LAB".into(),
+        ));
+    }
+    if mask == "quic_stable" && !swif_mask::quic_stable_lab_allowed() {
+        return Err(CoreError::Msg(
+            "quic_stable is lab-gated; set SWIF_ALLOW_QUIC_STABLE=1 or SWIF_LAB=1".into(),
         ));
     }
     // Commercial: null_tcp only with explicit lab opt-in.
@@ -256,6 +261,23 @@ async fn handle_one(
                 }
             }
             Err(last.unwrap().into())
+        }
+        "quic_stable" => {
+            let material = tls.ok_or_else(|| anyhow::anyhow!("tls material missing"))?;
+            let client = dial_quic_stable(server, material, &QuicStableHints::default(), verify).await?;
+            {
+                let mut p = policy.lock().await;
+                p.on_success();
+            }
+            let swif_mask::QuicStableClient {
+                endpoint,
+                conn,
+                stream,
+            } = client;
+            let result = pump_session(local, stream, pubk, target).await;
+            drop(conn);
+            drop(endpoint);
+            result
         }
         other => anyhow::bail!("unsupported mask {other}"),
     }

@@ -62,3 +62,4 @@ rustls-pki-types = "1"
 rcgen = "0.13"
 rustls-pemfile = "2"
 webpki-roots = "0.26"
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring", "log"] }

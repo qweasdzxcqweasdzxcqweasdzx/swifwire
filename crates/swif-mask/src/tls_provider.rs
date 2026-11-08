@@ -1,12 +1,13 @@
 //! Pack-driven rustls CryptoProvider profiles (partial ClientHello FP).
 //!
-//! Reorders TLS 1.3 cipher suites and kx groups. Does **not** rewrite extension
-//! order (needs uTLS-class stack). Improves JA3 suite/curve components vs default.
+//! Reorders TLS 1.3 cipher suites, kx groups, and signature-scheme preference.
+//! Does **not** rewrite extension order (needs uTLS/craftls). See `tls_fingerprint`.
 
 use std::sync::Arc;
 
-use rustls::crypto::{CryptoProvider, SupportedKxGroup};
-use rustls::SupportedCipherSuite;
+use rustls::crypto::{CryptoProvider, SupportedKxGroup, WebPkiSupportedAlgorithms};
+use rustls::pki_types::SignatureVerificationAlgorithm;
+use rustls::{SignatureScheme, SupportedCipherSuite};
 
 use crate::tls_profile::ClientHelloProfile;
 
@@ -61,7 +62,10 @@ fn prefer_suites(
     out
 }
 
-fn prefer_kx(base: &CryptoProvider, names: &[rustls::NamedGroup]) -> Vec<&'static dyn SupportedKxGroup> {
+fn prefer_kx(
+    base: &CryptoProvider,
+    names: &[rustls::NamedGroup],
+) -> Vec<&'static dyn SupportedKxGroup> {
     let mut out: Vec<&'static dyn SupportedKxGroup> = Vec::new();
     for want in names {
         if let Some(g) = base.kx_groups.iter().find(|g| g.name() == *want).copied() {
@@ -76,6 +80,67 @@ fn prefer_kx(base: &CryptoProvider, names: &[rustls::NamedGroup]) -> Vec<&'stati
     out
 }
 
+/// Reorder `mapping` (drives offered signature_algorithms) without dropping schemes.
+fn prefer_sig_schemes(
+    base: WebPkiSupportedAlgorithms,
+    prefer: &[SignatureScheme],
+) -> WebPkiSupportedAlgorithms {
+    let mut entries: Vec<(
+        SignatureScheme,
+        &'static [&'static dyn SignatureVerificationAlgorithm],
+    )> = Vec::new();
+
+    for want in prefer {
+        if let Some(e) = base.mapping.iter().find(|(s, _)| s == want) {
+            entries.push(*e);
+        }
+    }
+    for e in base.mapping {
+        if !entries.iter().any(|(s, _)| s == &e.0) {
+            entries.push(*e);
+        }
+    }
+    let mapping: &'static [_] = Box::leak(entries.into_boxed_slice());
+    WebPkiSupportedAlgorithms {
+        all: base.all,
+        mapping,
+    }
+}
+
+fn chrome_sig(base: WebPkiSupportedAlgorithms) -> WebPkiSupportedAlgorithms {
+    prefer_sig_schemes(
+        base,
+        &[
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            SignatureScheme::ECDSA_NISTP384_SHA384,
+            SignatureScheme::ED25519,
+            SignatureScheme::RSA_PSS_SHA256,
+            SignatureScheme::RSA_PSS_SHA384,
+            SignatureScheme::RSA_PSS_SHA512,
+            SignatureScheme::RSA_PKCS1_SHA256,
+            SignatureScheme::RSA_PKCS1_SHA384,
+            SignatureScheme::RSA_PKCS1_SHA512,
+        ],
+    )
+}
+
+fn firefox_sig(base: WebPkiSupportedAlgorithms) -> WebPkiSupportedAlgorithms {
+    prefer_sig_schemes(
+        base,
+        &[
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            SignatureScheme::ECDSA_NISTP384_SHA384,
+            SignatureScheme::ED25519,
+            SignatureScheme::RSA_PSS_SHA256,
+            SignatureScheme::RSA_PSS_SHA384,
+            SignatureScheme::RSA_PSS_SHA512,
+            SignatureScheme::RSA_PKCS1_SHA256,
+            SignatureScheme::RSA_PKCS1_SHA384,
+            SignatureScheme::RSA_PKCS1_SHA512,
+        ],
+    )
+}
+
 pub fn provider_for_profile(profile: ClientHelloProfile) -> Arc<CryptoProvider> {
     let mut p = ring_default();
     match profile {
@@ -86,6 +151,7 @@ pub fn provider_for_profile(profile: ClientHelloProfile) -> Arc<CryptoProvider> 
                 &p,
                 &[rustls::NamedGroup::X25519, rustls::NamedGroup::secp256r1],
             );
+            p.signature_verification_algorithms = chrome_sig(p.signature_verification_algorithms);
         }
         ClientHelloProfile::FirefoxStable => {
             p.cipher_suites = firefox_suites(&p);
@@ -93,6 +159,7 @@ pub fn provider_for_profile(profile: ClientHelloProfile) -> Arc<CryptoProvider> 
                 &p,
                 &[rustls::NamedGroup::X25519, rustls::NamedGroup::secp256r1],
             );
+            p.signature_verification_algorithms = firefox_sig(p.signature_verification_algorithms);
         }
     }
     Arc::new(p)
@@ -121,6 +188,10 @@ mod tests {
         assert_eq!(
             p.cipher_suites[0].suite(),
             rustls::CipherSuite::TLS13_AES_128_GCM_SHA256
+        );
+        assert_eq!(
+            p.signature_verification_algorithms.mapping[0].0,
+            SignatureScheme::ECDSA_NISTP256_SHA256
         );
     }
 

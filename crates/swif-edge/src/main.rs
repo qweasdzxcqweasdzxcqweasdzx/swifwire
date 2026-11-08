@@ -10,6 +10,7 @@ use swif_crypto::{StaticKeypair, TicketReplayWindow};
 use swif_mask::{
     accept_tls, decode_pref_datagram, encode_pref_datagram_slice, plausible_hello_len, read_pref,
     read_pref_timeout, serve_cover, write_pem, write_pref, CoverMode, LabTlsMaterial,
+    QuicStableHints, quic_stable_accept_bi, quic_stable_bind_server, quic_stable_lab_allowed,
 };
 use swif_mux::Mux;
 use swif_session::{server_respond_keys_ex_replay, SessionTransport};
@@ -30,7 +31,7 @@ struct Args {
     key: PathBuf,
     #[arg(long, default_value = "server.pub")]
     pub_out: PathBuf,
-    /// null_tcp (lab, needs SWIF_ALLOW_NULL=1) | tls13_stable | quic_fast
+    /// null_tcp | tls13_stable | quic_stable | quic_fast/quic_lab
     #[arg(long, default_value = "tls13_stable")]
     mask: String,
     /// Upstream cover origin `host:port` (plain TCP after TLS terminate). Prod: required unless SWIF_LAB=1.
@@ -129,6 +130,7 @@ async fn session_loop<S>(
     key: Arc<StaticKeypair>,
     hello: Vec<u8>,
     replay: Arc<AsyncMutex<TicketReplayWindow>>,
+    mask_id: &str,
 ) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -143,7 +145,7 @@ where
         info!("ticket resume ok");
     }
     write_pref(&mut client, &server_raw).await?;
-    post_handshake_loop(client, keys, "tls13_stable").await
+    post_handshake_loop(client, keys, mask_id).await
 }
 
 async fn handle_udp_datagram<S>(
@@ -249,7 +251,7 @@ async fn handle_null(
     replay: Arc<AsyncMutex<TicketReplayWindow>>,
 ) -> Result<()> {
     let hello = read_pref(&mut client).await.context("client hello")?;
-    session_loop(client, key, hello, replay).await
+    session_loop(client, key, hello, replay, "null_tcp").await
 }
 
 async fn handle_tls(
@@ -390,6 +392,42 @@ where
     }
 }
 
+async fn run_quic_stable(
+    args: Args,
+    key: Arc<StaticKeypair>,
+    replay: Arc<AsyncMutex<TicketReplayWindow>>,
+) -> Result<()> {
+    if !quic_stable_lab_allowed() {
+        bail!("quic_stable is lab-gated; set SWIF_ALLOW_QUIC_STABLE=1 or SWIF_LAB=1");
+    }
+    let material = load_tls_material(&args)?;
+    let hints = QuicStableHints::default();
+    let endpoint = quic_stable_bind_server(args.listen, &material, &hints)?;
+    info!(
+        "quic_stable QUIC listen {} alpn={:?}",
+        endpoint.local_addr()?,
+        hints.alpn
+    );
+    loop {
+        let accepted = quic_stable_accept_bi(&endpoint).await?;
+        let key = key.clone();
+        let replay = replay.clone();
+        tokio::spawn(async move {
+            // Keep Connection alive for the stream lifetime.
+            let _conn = accepted.conn;
+            let mut stream = accepted.stream;
+            if let Err(e) = async {
+                let hello = read_pref(&mut stream).await.context("quic hello")?;
+                session_loop(stream, key, hello, replay, "quic_stable").await
+            }
+            .await
+            {
+                error!("quic_stable session: {e:#}");
+            }
+        });
+    }
+}
+
 async fn run_quic(
     listen: SocketAddr,
     key: Arc<StaticKeypair>,
@@ -496,6 +534,9 @@ async fn main() -> Result<()> {
         hex::encode(key.public_bytes())
     );
 
+    if args.mask == "quic_stable" {
+        return run_quic_stable(args, key, replay).await;
+    }
     if args.mask == "quic_fast" || args.mask == "quic_lab" {
         if !lab_mode() {
             warn!("quic_fast/quic_lab is thin UDP cover — lab only; set SWIF_LAB=1 to silence");
