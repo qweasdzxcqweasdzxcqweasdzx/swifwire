@@ -24,9 +24,13 @@ Copy-Item (Join-Path $root "include\swifwire.h") (Join-Path $out "include\")
 Copy-Item (Join-Path $root "deploy\*") (Join-Path $out "deploy\") -Force
 New-Item -ItemType Directory -Force -Path (Join-Path $out "packs") | Out-Null
 Copy-Item (Join-Path $root "packs\*") (Join-Path $out "packs\") -Force -ErrorAction SilentlyContinue
-Copy-Item (Join-Path $root "docs\EMBED.md"),(Join-Path $root "docs\COMMERCIAL.md"),(Join-Path $root "docs\EDGE_RUNBOOK.md"),(Join-Path $root "docs\CLIENT_SDK.md"),(Join-Path $root "docs\SERVER_OPS.md") (Join-Path $out "docs\")
+Copy-Item (Join-Path $root "docs\EMBED.md"),(Join-Path $root "docs\COMMERCIAL.md"),(Join-Path $root "docs\EDGE_RUNBOOK.md"),(Join-Path $root "docs\CLIENT_SDK.md"),(Join-Path $root "docs\SERVER_OPS.md"),(Join-Path $root "docs\RELEASE_0.5.0.md"),(Join-Path $root "docs\LEGACY_FALLBACK.md"),(Join-Path $root "docs\ABI_FREEZE.md") (Join-Path $out "docs\") -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $root "README.md"),(Join-Path $root "VERSION"),(Join-Path $root "CHANGELOG.md") $out
-Copy-Item (Join-Path $root "scripts\tray-lab.ps1"),(Join-Path $root "scripts\fetch-wintun.ps1"),(Join-Path $root "scripts\prod-gate.ps1") $out -ErrorAction SilentlyContinue
+Copy-Item (Join-Path $root "scripts\tray-lab.ps1"),(Join-Path $root "scripts\fetch-wintun.ps1"),(Join-Path $root "scripts\prod-gate.ps1"),(Join-Path $root "scripts\smoke-prod-0.5.ps1"),(Join-Path $root "scripts\sbom.ps1") $out -ErrorAction SilentlyContinue
+# SBOM into package if present
+if (Test-Path (Join-Path $root "dist\sbom-cargo.json")) {
+  Copy-Item (Join-Path $root "dist\sbom-cargo.json") $out -ErrorAction SilentlyContinue
+}
 
 # optional wintun
 if (-not (Test-Path "third_party\wintun\wintun.dll")) {

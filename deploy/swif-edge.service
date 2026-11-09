@@ -21,7 +21,8 @@ ExecStart=/usr/local/bin/swif-edge \
   --sni cdn.example.com \
   --tls-cert /etc/swif/cover.crt \
   --tls-key /etc/swif/cover.key \
-  --cover 127.0.0.1:8080
+  --cover 127.0.0.1:8080 \
+  --ticket-master /var/lib/swif/ticket.master
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true

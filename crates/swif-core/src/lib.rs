@@ -126,13 +126,19 @@ pub struct CoreStatus {
     /// Configured legacy URI (host app dials when SwifWire exhausts).
     #[serde(default)]
     pub legacy_fallback_hint: Option<String>,
-    /// Honest FP: extension order not controlled by rustls.
+    /// Pack-ordered ClientHello on live craft dial (chrome/firefox).
     #[serde(default)]
     pub tls_extension_order_ready: bool,
-    /// Quinn `quic_stable` dial/accept compiled in.
+    /// Craft dial code path is compiled and selectable.
+    #[serde(default)]
+    pub craft_dial_wired: bool,
+    /// Quinn `quic_stable` dial/accept compiled in (lab-gated at runtime).
     #[serde(default)]
     pub quic_stable_runtime_ready: bool,
-    /// Core/protocol commercial test gate version string.
+    /// Byte-perfect forged QUIC Initial inject — false through 0.5 (lab-only residual → 0.6).
+    #[serde(default)]
+    pub forge_ready: bool,
+    /// Core/protocol production gate version string.
     #[serde(default)]
     pub prod_gate: String,
 }
@@ -209,9 +215,10 @@ pub fn core_start(config_json: &str) -> Result<CoreHandle, CoreError> {
                 last_error: None,
                 legacy_fallback_hint: legacy,
                 tls_extension_order_ready: swif_mask::tls_extension_order_ready(),
+                craft_dial_wired: swif_mask::craft_dial_wired(),
                 quic_stable_runtime_ready: swif_mask::quic_stable_ready(),
-                prod_gate: "0.5.0-wip".into(), // craft dial wired; QUIC forge still residual
-
+                forge_ready: swif_mask::quic_forge_ready(),
+                prod_gate: "0.5.0-prod".into(),
             },
         }),
     })
@@ -454,7 +461,9 @@ mod tests {
         assert_eq!(st.legacy_fallback_hint.as_deref(), Some("vless://example"));
         assert!(st.quic_stable_runtime_ready);
         assert!(st.tls_extension_order_ready);
-        assert_eq!(st.prod_gate, "0.5.0-wip");
+        assert!(st.craft_dial_wired);
+        assert!(!st.forge_ready);
+        assert_eq!(st.prod_gate, "0.5.0-prod");
         core_stop(h);
     }
 

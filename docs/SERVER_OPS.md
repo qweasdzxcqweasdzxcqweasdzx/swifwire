@@ -19,10 +19,11 @@
 ## 2. Быстрый подъём ноды
 
 ```powershell
-# Windows prod (PEM + cover required; no SWIF_LAB)
+# Windows prod (PEM + cover + ticket-master; no SWIF_LAB)
 .\swif-edge.exe --listen 0.0.0.0:443 --mask tls13_stable `
   --key server.key --pub-out server.pub --sni cdn.example.com `
-  --tls-cert cover.crt --tls-key cover.key --cover 127.0.0.1:8443
+  --tls-cert cover.crt --tls-key cover.key --cover 127.0.0.1:8443 `
+  --ticket-master ticket.master
 Get-Content server.pub
 ```
 
@@ -31,7 +32,7 @@ Get-Content server.pub
 ./swif-edge --listen 0.0.0.0:443 --mask tls13_stable \
   --key /var/lib/swif/server.key --pub-out /var/lib/swif/server.pub \
   --sni cdn.example.com --tls-cert /etc/swif/cover.crt --tls-key /etc/swif/cover.key \
-  --cover 127.0.0.1:8443
+  --cover 127.0.0.1:8443 --ticket-master /var/lib/swif/ticket.master
 ```
 
 Флаги:
@@ -45,10 +46,11 @@ Get-Content server.pub
 | `--sni` | `cover.local` | TLS SNI / material |
 | `--cover` / `--cover-upstream` | none | upstream HTTP cover host:port (**prod required**) |
 | `--tls-cert` / `--tls-key` | none | PEM leaf/chain + PKCS8 (**prod required**) |
+| `--ticket-master` / `SWIF_TICKET_MASTER_HEX` | none | 32-byte ticket seal (**prod required**) |
 | `--tls-material` | `lab-cert.der.json` | JSON lab material only with `SWIF_LAB=1` |
 
-**Prod:** без `SWIF_LAB` edge отказывается стартовать `tls13_stable` без PEM + cover.  
-**Lab:** `null_tcp` только с `SWIF_ALLOW_NULL=1`; JSON TLS material только с `SWIF_LAB=1`.
+**Prod:** без `SWIF_LAB` edge отказывается стартовать `tls13_stable` без PEM + cover + ticket-master.  
+**Lab:** `null_tcp` только с `SWIF_ALLOW_NULL=1`; JSON TLS material / static-pub ticket fallback только с `SWIF_LAB=1`.
 
 ## 3. Inbound JSON (панель / агент)
 

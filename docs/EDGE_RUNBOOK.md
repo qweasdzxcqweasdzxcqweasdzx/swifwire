@@ -19,17 +19,19 @@ Keep `server.key` offline. Distribute only `server.pub` to clients.
   --key server.key --pub-out server.pub `
   --sni cdn.example.com `
   --tls-cert cover.crt --tls-key cover.key `
-  --cover-upstream 127.0.0.1:8443
+  --cover-upstream 127.0.0.1:8443 `
+  --ticket-master ticket.master
 ```
 
 | Flag | Meaning |
 |------|---------|
 | `--cover` / `--cover-upstream` | After TLS terminate, failed/probe path mirrors bytes to this HTTP origin |
 | `--tls-cert` / `--tls-key` | PEM cover cert (required for prod; JSON lab material needs `SWIF_LAB=1`) |
-| `SWIF_LAB=1` | Allow self-signed JSON material + builtin HTML cover |
+| `--ticket-master` / `SWIF_TICKET_MASTER_HEX` | 32-byte ticket seal (prod required; static-pub fallback only with `SWIF_LAB=1`) |
+| `SWIF_LAB=1` | Allow self-signed JSON material + builtin HTML cover + static-pub ticket |
 
 Without cover upstream and without `SWIF_LAB`, `tls13_stable` **refuses to start**.  
-Prod (no `SWIF_LAB`) also requires **`--tls-cert` + `--tls-key` PEM** (JSON lab material rejected).
+Prod (no `SWIF_LAB`) also requires **PEM + ticket-master** (JSON lab material / static-pub ticket rejected).
 
 ## Masks
 

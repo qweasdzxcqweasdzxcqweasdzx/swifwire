@@ -7,8 +7,8 @@ use clap::{Parser, Subcommand};
 use swif_crypto::PackSigningKey;
 use swif_mask::{
     build_client_hello_record, client_hello_intent_json, ja3_hash_from_record,
-    ja3_string_from_record, sign_pack_value, verify_and_load, QuicInitialTemplate, QuicStableHints,
-    TlsPackHints,
+    ja3_string_from_record, ja4_a_from_record, sign_pack_value, verify_and_load,
+    QuicInitialTemplate, QuicStableHints, TlsPackHints,
 };
 
 #[derive(Parser, Debug)]
@@ -160,10 +160,12 @@ fn run(args: Args) -> anyhow::Result<()> {
             let rec = build_client_hello_record(&hints, &sni);
             let ja3 = ja3_string_from_record(&rec).ok_or_else(|| anyhow::anyhow!("ja3 parse"))?;
             let hash = ja3_hash_from_record(&rec).unwrap();
+            let ja4 = ja4_a_from_record(&rec).unwrap();
             println!("ja3_string={ja3}");
             println!("ja3_sha256={hash}");
+            println!("ja4_a={ja4}");
             println!("ch_record_hex={}", hex::encode(&rec));
-            println!("note=craft_dial_default_for_chrome_firefox; force_rustls=SWIF_TLS_RUSTLS_DIAL=1");
+            println!("note=craft_dial_default; pack drifts vs browser capture → edit pack profiles; SWIF_TLS_RUSTLS_DIAL=1 forces rustls");
         }
         Cmd::Sqi1 {
             version,

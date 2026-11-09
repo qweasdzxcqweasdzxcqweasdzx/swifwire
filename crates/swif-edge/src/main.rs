@@ -102,7 +102,12 @@ fn load_ticket_master(args: &Args, key: &StaticKeypair) -> Result<[u8; 32]> {
         out.copy_from_slice(&raw);
         return Ok(out);
     }
-    // Lab/compat default — CRYPTO.md: prod SHOULD separate via --ticket-master.
+    // Prod: ticket master MUST be separate. Static-pub fallback only with SWIF_LAB=1.
+    if !lab_mode() {
+        bail!(
+            "prod requires --ticket-master PATH (32 raw bytes) or SWIF_TICKET_MASTER_HEX (set SWIF_LAB=1 only for lab static-pub fallback)"
+        );
+    }
     Ok(key.public_bytes())
 }
 

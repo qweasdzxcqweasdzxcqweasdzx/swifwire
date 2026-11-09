@@ -11,4 +11,4 @@ uniffi-bindgen generate ffi/swifwire.udl --language kotlin --out-dir dist/androi
 uniffi-bindgen generate ffi/swifwire.udl --language swift --out-dir dist/ios/
 ```
 
-0.5.0-wip does **not** ship AAR/XCFramework yet — C ABI remains the product host surface.
+0.5.0 does **not** ship AAR/XCFramework — C ABI remains the product host surface (see docs/ABI_FREEZE.md).

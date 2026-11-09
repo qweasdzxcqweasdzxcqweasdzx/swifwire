@@ -41,7 +41,7 @@ pub extern "C" fn swif_string_free(s: *mut c_char) {
 
 #[no_mangle]
 pub extern "C" fn swif_abi_version() -> i32 {
-    // Bump only on C ABI breaks. 0.3.0-prod keeps ABI = 1.
+    // Bump only on C ABI breaks. Frozen at 1 through 0.5.0 (see docs/ABI_FREEZE.md).
     1
 }
 

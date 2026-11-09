@@ -119,7 +119,13 @@ swif_core_stop();
   "server": "vpn.example.com:443",
   "bytes_up": 0,
   "bytes_down": 0,
-  "last_error": null
+  "last_error": null,
+  "legacy_fallback_hint": null,
+  "tls_extension_order_ready": true,
+  "craft_dial_wired": true,
+  "quic_stable_runtime_ready": true,
+  "forge_ready": false,
+  "prod_gate": "0.5.0-prod"
 }
 ```
 
@@ -156,16 +162,14 @@ $env:SWIF_ALLOW_NULL="1"   # только если тестируете null
 
 ## 10b. Dual-stack (phase 1)
 
-В конфиге можно указать opaque `legacy_fallback_uri` (например share другой транспорт).  
-SwifWire **не** исполняет его: при исчерпании dial retries ошибка содержит `legacy_fallback_hint=…` — UI переключает outbound сам.
+Opaque `legacy_fallback_uri` — see **[LEGACY_FALLBACK.md](LEGACY_FALLBACK.md)**. Host executes; core only hints.
 
-Pack: `templates.client_hello_profile` (`chrome_stable` / `firefox_stable` / `rustls_default`) + `alpn` применяются через rustls ALPN. Полный JA3/uTLS ещё не закрыт.
+Status JSON (integrator): `prod_gate`, `tls_extension_order_ready`, `craft_dial_wired`, `forge_ready`, `legacy_fallback_hint`, `last_error`.
 
-`quic_stable` — quinn dial/accept + pref bi-stream; lab gate `SWIF_ALLOW_QUIC_STABLE=1` / `SWIF_LAB=1`. Pack `templates.quic_initial` / SQI1 b64 drives grease+DCID policy (lab cover); forged Quinn Initial still open. Thin UDP lab = `quic_lab` / `quic_fast` + `SWIF_ALLOW_QUIC_LAB`.
+TLS FP: **craft dial default** (chrome/firefox). Force rustls: `SWIF_TLS_RUSTLS_DIAL=1`.  
+JA4/JA3 lab: `swif-pack ja3` + `tests/vectors/ja4/` (pack fixes drift vs browser capture).
 
-TLS FP: **craft dial default** for `chrome_stable` / `firefox_stable` — pack-ordered ClientHello (suites/ALPN/GREASE/ext order).  
-Fallback: on craft failure → rustls; force rustls: `SWIF_TLS_RUSTLS_DIAL=1`.  
-Status: `tls_extension_order_ready=true`. Lab JA3 dump: `swif-pack ja3`.
+`quic_stable` / `quic_lab`: **lab-only** (`SWIF_ALLOW_QUIC_STABLE=1`); `forge_ready=false` until 0.6.
 
 Cover cert ops: issue a real cert for your SNI (Let's Encrypt / CDN), point edge `--cover` at origin that serves the same hostname content, client `tls_verify=webpki`.
 

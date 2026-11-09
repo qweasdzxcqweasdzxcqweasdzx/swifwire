@@ -38,7 +38,8 @@ pub use quic_stable::{
 };
 pub use tls_ch_wire::{
     build_client_hello_record, build_client_hello_record_live, craft_status_message,
-    extension_types_from_record, ja3_hash_from_record, ja3_string_from_record, LiveClientHelloParams,
+    extension_types_from_record, ja3_hash_from_record, ja3_string_from_record, ja4_a_from_record,
+    LiveClientHelloParams,
 };
 pub use tls_craft_dial::{
     craft_dial_wired, dial_tls_craft, fingerprint_budget_craft, should_craft_dial,

@@ -332,6 +332,102 @@ pub fn ja3_hash_from_record(rec: &[u8]) -> Option<String> {
     Some(hex::encode(digest))
 }
 
+/// JA4_a-style fingerprint over crafted ClientHello (lab corpus).
+/// Format: `t13d{S}{E}{ALPN}_{ciphers_sorted}_{exts_sorted}_{sigalgs}`
+/// Not guaranteed byte-identical to FoxIO JA4 of a real Chrome capture — pack drifts go here.
+pub fn ja4_a_from_record(rec: &[u8]) -> Option<String> {
+    if rec.len() < 9 || rec[0] != 0x16 {
+        return None;
+    }
+    let hs_len = u16::from_be_bytes([rec[3], rec[4]]) as usize;
+    if rec.len() < 5 + hs_len {
+        return None;
+    }
+    let body = &rec[9..5 + hs_len];
+    if body.len() < 35 {
+        return None;
+    }
+    let mut i = 34;
+    let sid_len = body[i] as usize;
+    i += 1 + sid_len;
+    let cs_len = u16::from_be_bytes([body[i], body[i + 1]]) as usize;
+    i += 2;
+    let mut ciphers: Vec<u16> = Vec::new();
+    let end_cs = i + cs_len;
+    while i + 2 <= end_cs {
+        ciphers.push(u16::from_be_bytes([body[i], body[i + 1]]));
+        i += 2;
+    }
+    let comp_len = body[i] as usize;
+    i += 1 + comp_len;
+    let ext_len = u16::from_be_bytes([body[i], body[i + 1]]) as usize;
+    i += 2;
+    let exts = &body[i..i + ext_len];
+    let mut ext_types: Vec<u16> = Vec::new();
+    let mut sigs: Vec<u16> = Vec::new();
+    let mut alpn_first = "00".to_string();
+    let mut j = 0;
+    while j + 4 <= exts.len() {
+        let ty = u16::from_be_bytes([exts[j], exts[j + 1]]);
+        let len = u16::from_be_bytes([exts[j + 2], exts[j + 3]]) as usize;
+        let data = &exts[j + 4..j + 4 + len.min(exts.len() - (j + 4))];
+        if ty != 0x0029 {
+            // exclude PSK from JA4_a sorted ext list (FoxIO convention)
+            ext_types.push(ty);
+        }
+        if ty == 0x000d && data.len() >= 2 {
+            let sl = u16::from_be_bytes([data[0], data[1]]) as usize;
+            let mut k = 2;
+            while k + 2 <= 2 + sl && k + 2 <= data.len() {
+                sigs.push(u16::from_be_bytes([data[k], data[k + 1]]));
+                k += 2;
+            }
+        }
+        if ty == 0x0010 && data.len() >= 3 {
+            let plen = data[2] as usize;
+            if data.len() >= 3 + plen {
+                let proto = std::str::from_utf8(&data[3..3 + plen]).unwrap_or("");
+                alpn_first = if proto.is_empty() {
+                    "00".into()
+                } else if proto.len() >= 2 {
+                    proto[..2].to_string()
+                } else {
+                    format!("{proto}0")
+                };
+            }
+        }
+        j += 4 + len;
+    }
+    let mut ciphers_s = ciphers.clone();
+    ciphers_s.sort_unstable();
+    let mut exts_s = ext_types.clone();
+    exts_s.sort_unstable();
+    let cipher_part = ciphers_s
+        .iter()
+        .map(|c| format!("{c:04x}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let ext_part = exts_s
+        .iter()
+        .map(|e| format!("{e:04x}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sig_part = sigs
+        .iter()
+        .map(|s| format!("{s:04x}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    Some(format!(
+        "t13d{:02}{:02}{}_{}_{}_{}",
+        ciphers.len().min(99),
+        ext_types.len().min(99),
+        alpn_first,
+        cipher_part,
+        ext_part,
+        sig_part
+    ))
+}
+
 pub fn craft_status_message() -> &'static str {
     "tls_ch_wire: pack-ordered ClientHello builder (lab + live params)"
 }
@@ -368,5 +464,20 @@ mod tests {
         assert_eq!(a, b);
         assert!(a.starts_with("771,"));
         assert!(ja3_hash_from_record(&rec).unwrap().len() == 64);
+    }
+
+    #[test]
+    fn ja4_a_stable_and_starts_with_t13() {
+        let hints = TlsPackHints {
+            profile: ClientHelloProfile::ChromeStable,
+            grease: false,
+            alpn: vec!["h2".into(), "http/1.1".into()],
+            sni_pool_ref: None,
+        };
+        let rec = build_client_hello_record(&hints, "cdn.example.com");
+        let a = ja4_a_from_record(&rec).unwrap();
+        let b = ja4_a_from_record(&rec).unwrap();
+        assert_eq!(a, b);
+        assert!(a.starts_with("t13d"), "{a}");
     }
 }

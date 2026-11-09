@@ -12,7 +12,7 @@ Client embeds `swif-core` / `swifwire.dll` and exposes local SOCKS5; each CONNEC
 
 ## Current version
 
-See VERSION file (0.5.0-wip). Default mask = tls13_stable. Dual-stack with legacy until JA3 craft dial + QUIC forge land.
+See VERSION file (0.5.0). Craft dial default; QUIC forge lab-only until 0.6. Dual-stack: host executes legacy_fallback_uri.
 
 ## Binaries
 

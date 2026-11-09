@@ -2,18 +2,21 @@
 
 ## Unreleased
 
-## 0.5.0-wip
+## 0.5.0
 
-Toward mass-client DPI cover (dual-stack still required):
+Protocol/core **production** gate for SwifTun dual-stack integration:
 
-- Crafted TLS ClientHello + **live craft dial default** (`tls_craft_dial`); app secrets use CH…server Finished (RFC); rustls fallback / `SWIF_TLS_RUSTLS_DIAL=1`
-- Status: `tls_extension_order_ready=true` for chrome/firefox pack profiles
-- Edge `--ticket-master` / `SWIF_TICKET_MASTER_HEX` (prod separate from static pub)
-- DialPolicy: quic_stable only via `SWIF_ALLOW_QUIC_STABLE` (no silent SWIF_LAB switch)
-- Session negative/stress tests (`negative_hs`)
-- QUIC `forge_ready=false` + inject scaffold
-- Property corpus + SBOM scripts
-- `prod_gate=0.5.0-wip`
+- **Craft dial default** for chrome/firefox (`tls_craft_dial`); app secrets = CH…server Finished (RFC 8446); rustls only via fallback / `SWIF_TLS_RUSTLS_DIAL=1`
+- Status: `prod_gate=0.5.0-prod`, `tls_extension_order_ready=true`, `craft_dial_wired=true`, `forge_ready=false`
+- **Ticket master** required in prod (`--ticket-master` / `SWIF_TICKET_MASTER_HEX`); static-pub fallback only with `SWIF_LAB=1`
+- JA4/JA3 lab corpus (`tests/vectors/ja4/`, `swif-pack ja3`) — pack-driven drift fixes
+- QUIC forge **cut** from prod default (lab → 0.6); DialPolicy never silent-switches to quic
+- Session `negative_hs` + REKEY/resume stress; crypto `fuzz_like` + vectors
+- Edge metrics (handshake_ok / cover_path / rekey_ok); legacy contract doc
+- ABI freeze: C ABI still **1**; status schema additive only
+- Gate: `prod-gate.ps1` / `.sh` + `smoke-prod-0.5.ps1`
+
+See [docs/RELEASE_0.5.0.md](docs/RELEASE_0.5.0.md).
 
 ## 0.4.0
 
@@ -42,37 +45,10 @@ Production **test gate** for protocol + core (self-host commercial):
 - **Deploy:** `client.prod.example.json`, `edge.prod.example.md`
 - Proto-4…7 + harden-1…3 folded in (SwifHS, REKEY, replay, quinn `quic_stable`, SQI1, pack hints)
 
-**Residual (documented):** full JA3 extension order; forged Quinn Initial; host executes legacy URI.
-
 ## 0.2.0
 
-Commercial Windows self-host package:
-
-- Live embed core SOCKS (`swif-core-run`, C ABI, Go sidecar helpers)
-- Default mask `tls13_stable`; `null_tcp` requires `SWIF_ALLOW_NULL=1`
-- Dial retries in core runtime; tray shell starts/stops `swif-core-run`
-- `deploy/` examples, `docs/COMMERCIAL.md`, `scripts/release-win.ps1`, `scripts/smoke-all.ps1`
-- VERSION / workspace `0.2.0`
+Commercial Windows self-host package.
 
 ## 0.1.0-mvp
 
-Lab MVP frozen. Tag when OS TUN admin E2E checked: `git tag -a v0.1.0-mvp`.
-
-### M1
-- Wire framing, crypto, session, mux, shape
-- `null_tcp` SOCKS tunnel (`swif-edge` / `swif-cli`)
-
-### M2
-- `tls13_stable` (rustls) + cover mirror
-- `quic_fast` thin UDP cover
-- Signed mask packs (ed25519)
-- Ticket resume &lt;2s
-- UniFFI-ready `swif-core` API
-
-### M3
-- MASK_OFFER / MASK_ACK / HEALTH
-- DialPolicy fallback
-- UDP map (DATAGRAM + `--udp-ping`)
-- `swif-tun` NullTun + optional `os-tun` feature
-- `swif-tray` minimal Windows tray
-- EDGE_RUNBOOK, smoke scripts
+Lab MVP frozen.

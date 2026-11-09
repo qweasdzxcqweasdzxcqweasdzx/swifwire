@@ -1,0 +1,9 @@
+{
+  "profile": "chrome_stable",
+  "sni": "cdn.example.com",
+  "grease": true,
+  "alpn": ["h2", "http/1.1"],
+  "note": "Lab encoder (full pack extension list). Drift vs real Chrome capture → edit pack, re-sign.",
+  "ja3_string": "771,2570-4865-4867-4866,2570-0-5-10-11-13-16-18-23-27-43-45-51-17513-65037-65281,29-23-24,0",
+  "ja4_a": "t13d0416h2_0a0a,1301,1302,1303_0000,0005,000a,000b,000d,0010,0012,0017,001b,002b,002d,0033,0a0a,4469,fe0d,ff01_0403,0804,0401,0503"
+}
